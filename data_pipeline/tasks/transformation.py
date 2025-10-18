@@ -1,16 +1,98 @@
+from pandas import DataFrame
 from prefect import task
 
+import pandas as pd
+import re
+
 @task
-def transform_news_data(data):
+def transform_news_data(data: dict):
     print("Transforming News data...")
-    return data
+    data_frame = pd.DataFrame.from_dict(data)
+
+    data_frame = handle_missing_values(data_frame)
+    print("Handled missing values ")
+
+    columns_to_drop = ["urlToImage", "description"]
+    data_frame.drop(columns=[col for col in columns_to_drop if col in data_frame.columns], inplace=True)
+    print("Removed redundat column 'urlToImage' and description")
+
+    data_frame["publishedAt"] = pd.to_datetime(data_frame["publishedAt"], utc=True)
+    print("Standardized the 'publishedAt' column to UTC datetime")
+
+    initial_rows = len(data_frame)
+    data_frame.drop_duplicates(subset=['title', 'url', 'publishedAt'], keep='first', inplace=True)
+    print(f"Removed {initial_rows - len(data_frame)} duplicate rows.")
+
+    data_frame['title_cleaned'] = data_frame['title'].apply(clean_text_for_nlp)
+    data_frame['content_cleaned'] = data_frame['content'].apply(clean_text_for_nlp)
+    print("Created 'title_cleaned' and 'content_cleaned' for prediction model.")
+
+    print("Transformation is completed.")
+
+    return data_frame
+
 
 @task
 def transform_praw_data(data):
     print("Transforming PRAW data...")
     return data
 
+
 @task
 def transform_alpaca_data(data):
     print("Transforming Alpaca data...")
     return data
+
+# ----------------------------------------
+# HELPER METHODS
+# ----------------------------------------
+
+# 1. FOR THE NEWSAPI TRANSFORMATION
+def data_analysis(data: DataFrame):
+    print("Head data")
+    print(data.head())
+
+    print("Info data")
+    print(data.info())
+
+    print("Check for duplicate rows")
+    print(data.duplicated())
+
+    print("Identify data types")
+    cat_col = [col for col in data.columns if data[col].dtype == "object"]
+    num_col = [col for col in data.columns if data[col].dtype != "object"]
+    print("Categorical columns:", cat_col)
+    print("Numerical columns:", num_col)
+
+    print("Missing values as percentage")
+    print(round((data.isnull().sum() / data.shape[0]) * 100, 2))
+
+
+def handle_missing_values(dt: DataFrame) -> DataFrame:
+    original_rows = len(dt)
+    
+    dt.dropna(subset=["title", "content"], how="all", inplace=True)
+    
+    dt["author"] = dt["author"].fillna("No Author")
+    dt["content"] = dt["content"].fillna(dt["description"].fillna(dt["title"].fillna("")))
+    dt["title"] = dt["title"].fillna("Untitled Article")
+
+    print(f"Dropped {original_rows - len(dt)} rows due to missing critical data.")
+    return dt
+
+def clean_text_for_nlp(text: str) -> str:
+    if pd.isna(text) or text is None:
+        return ""
+    
+    text = str(text).lower()
+    text = re.sub(r"<[^>]+>", "", text)
+    text = re.sub(r"http\S+|www\S+|https\S+", "", text, flags=re.MULTILINE)
+    text = re.sub(r"\[\+\d+ chars\]", "", text).strip() # Removes from 'content' remnants like "[+4561 chars]" or similar brackets
+    text = re.sub(r"[^\w\s.!?]", "", text)              # Removes non-alphanumeric characters
+    text = re.sub(r"\s+", " ", text).strip()
+
+    return text
+
+# 2. FOR THE REDDIT TRANSFORMATION
+
+# 3. FOR THE ALPACA API TRANSFORMATION

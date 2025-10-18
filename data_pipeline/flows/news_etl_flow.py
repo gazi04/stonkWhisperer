@@ -33,7 +33,7 @@ def news_etl_flow():
     raw_data = extract_news_data(query=categories["core_financial"])
 
     # 2. T-ransformation (Placeholder)
-    # transformed_data = transform_news_data(raw_data)
+    gransformed_data = transform_news_data(raw_data)
     
     # 3. L-oading (Placeholder)
     # load_news_data(transformed_data)
