@@ -1,19 +1,37 @@
 from prefect import flow
 from tasks.extraction import extract_news_data
-# Import placeholder functions for T and L
 from tasks.transformation import transform_news_data
 from tasks.loading import load_news_data
 
+
 @flow(name="NewsAPI ETL Pipeline", log_prints=True)
-def news_etl_flow(query: str, api_key: str):
+def news_etl_flow():
     """
     Dedicated ETL pipeline for NewsAPI.
     """
-    print(f"*** Running News ETL for query: {query} ***")
+
+    categories: dict[str, str] = {
+        # CORE FINANCIAL NEWS (Business News, Hard News - Economics)
+        # High-signal for direct financial impact.
+        "core_financial": "stocks OR earnings OR investment OR market trend OR merger OR acquisition OR financial report",
+        # MACRO / POLITICAL RISK (Hard News - Politics, Editorial/Opinion)
+        # Captures broad systemic risk and policy uncertainty.
+        "macro_politics": "politics OR election OR central bank OR Fed OR policy OR legislature OR government spending OR opinion column",
+        # BEHAVIORAL MOOD / SPORTS & ENTERTAINMENT (Sports, Entertainment)
+        # Measures general investor optimism/pessimism from non-financial events.
+        "behavioral_mood": "World Cup OR NBA Finals OR Olympics OR celebrity OR movie review OR music industry OR award ceremony OR athlete",
+        # INNOVATION & DISRUPTORS (Science/Technology, Investigative)
+        # Tracks long-term technological drivers and related controversies.
+        "innovation_tech": "AI OR tech innovation OR medical breakthrough OR space exploration OR corporate scandal OR data breach OR investigation",
+        # GENERAL SENTIMENT (Soft News, Feature News, Crime/Legal)
+        # Captures consumer interest, social trends, and general societal distress.
+        "general_sentiment": "lifestyle OR travel OR health trend OR social issue OR climate change OR crime OR court verdict"
+    }
     
     # 1. E-xtraction
-    raw_data = extract_news_data(query=query, api_key=api_key)
-    
+    print(f"*** Running News ETL for query: {categories["core_financial"]} ***")
+    raw_data = extract_news_data(query=categories["core_financial"])
+
     # 2. T-ransformation (Placeholder)
     # transformed_data = transform_news_data(raw_data)
     

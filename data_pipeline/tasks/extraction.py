@@ -1,46 +1,46 @@
-# from prefect import task
-# from core.config_loader import settings
-#
-# import httpx
-#
-# # @task
-# def fetch_api_data():
-#     response = httpx.get("https://api.nytimes.com/svc/archive/v1/2024/1.json?api-key=" + settings.ny_times_api_key)
-#
-#     print(response.status_code)
-#
-#     print(response.json())
-#
-# if __name__ == "__main__":
-#     fetch_api_data()
-
-from prefect import task
+from concurrent.futures import ThreadPoolExecutor
 from newsapi import NewsApiClient
+from newsapi.newsapi_exception import NewsAPIException
+from prefect import task
+from typing import Optional
 
 from core.config_loader import settings
-import requests
-# Assume the SDKs (newsapi-python, praw, alpaca-py) are installed
+
+import trafilatura
 
 @task(name="Extract NewsAPI Data")
-def extract_news_data(query: str, api_key: str) -> list[dict]:
+def extract_news_data(query: str) -> list[dict]:
     """
     Connects to the NewsAPI SDK to fetch articles based on a query.
     Note: For simplicity, we use requests here, but in production, you'd use the SDK.
     """
     print(f"-> Starting NewsAPI extraction for query: {query}")
-    api = NewsApiClient(api_key=settings.news_api_key)
-    
-    news = api.get_everything(language="en")
-    # Placeholder for NewsAPI SDK interaction
-    # Example: newsapi = NewsApiClient(api_key=api_key)
-    # response = newsapi.get_everything(q=query, language='en')
-    
-    # Mock API call for demonstration:
-    response = requests.get(f"https://some-news-mock-api.com/articles?q={query}")
-    response.raise_for_status()
-    
-    # In a real scenario, this would return the list of article objects
-    return [{"source": "NewsAPI", "title": f"Article {i}"} for i in range(10)]
+
+    try:
+        api = NewsApiClient(api_key=settings.news_api_key)
+        data = api.get_everything(q=query, language="en")
+        articles = data["articles"]
+        
+        if not articles:
+            print("No articles found.")
+            return []
+
+        print(f"-> Starting concurrent content fetch for {len(articles)} articles.")
+        
+        article_urls = [article["url"] for article in articles]
+        
+        with ThreadPoolExecutor(max_workers=10) as executor:
+            full_contents = list(executor.map(get_full_article, article_urls))
+            
+        for article, content in zip(articles, full_contents):
+            article["content"] = content
+            article["source"] = article["source"]["name"]
+
+        print(f"<- Finished fetching full content for {len(articles)} articles.")
+        return articles
+    except NewsAPIException as ex:
+        raise ex
+
 
 @task(name="Extract PRAW Data")
 def extract_praw_data(subreddit: str) -> list[dict]:
@@ -69,3 +69,6 @@ def extract_alpaca_data(symbol: str) -> list[dict]:
 
     return [{"source": "Alpaca", "price": 150.50, "symbol": symbol}]
 
+def get_full_article(url: str) -> Optional[str]:
+    downloaded = trafilatura.fetch_url(url)
+    return trafilatura.extract(downloaded)
