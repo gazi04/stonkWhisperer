@@ -9,6 +9,9 @@ def transform_news_data(data: dict):
     print("Transforming News data...")
     data_frame = pd.DataFrame.from_dict(data)
 
+    data_frame.rename(columns={"publishedAt": "published_at"}, inplace=True)
+    print("Renamed column names to use snake case")
+
     data_frame = handle_missing_values(data_frame)
     print("Handled missing values ")
 
