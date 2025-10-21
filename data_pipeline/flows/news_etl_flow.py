@@ -32,10 +32,12 @@ def news_etl_flow():
     print(f"*** Running News ETL for query: {categories["core_financial"]} ***")
     raw_data = extract_news_data(query=categories["core_financial"])
 
-    # 2. T-ransformation (Placeholder)
-    gransformed_data = transform_news_data(raw_data)
+    # 2. T-ransformation 
+    transformed_data = transform_news_data(raw_data)
     
-    # 3. L-oading (Placeholder)
-    # load_news_data(transformed_data)
+    # 3. L-oading 
+    # todo: ♻️ need to automate such that we pass on the category 
+    # that is used to extract the data from the api
+    load_news_data(transformed_data, "core_financial")
     
     return len(raw_data) # Return count for aggregation
