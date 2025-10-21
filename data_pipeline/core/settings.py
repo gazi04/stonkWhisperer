@@ -4,4 +4,5 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file="../../.env")
 
     news_api_key: str
+    database_url: str
 
