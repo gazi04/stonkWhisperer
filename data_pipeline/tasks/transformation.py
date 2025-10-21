@@ -19,11 +19,11 @@ def transform_news_data(data: dict):
     data_frame.drop(columns=[col for col in columns_to_drop if col in data_frame.columns], inplace=True)
     print("Removed redundat column 'urlToImage' and description")
 
-    data_frame["publishedAt"] = pd.to_datetime(data_frame["publishedAt"], utc=True)
-    print("Standardized the 'publishedAt' column to UTC datetime")
+    data_frame["published_at"] = pd.to_datetime(data_frame["published_at"], utc=True)
+    print("Standardized the 'published_at' column to UTC datetime")
 
     initial_rows = len(data_frame)
-    data_frame.drop_duplicates(subset=['title', 'url', 'publishedAt'], keep='first', inplace=True)
+    data_frame.drop_duplicates(subset=['title', 'url', 'published_at'], keep='first', inplace=True)
     print(f"Removed {initial_rows - len(data_frame)} duplicate rows.")
 
     data_frame['title_cleaned'] = data_frame['title'].apply(clean_text_for_nlp)
@@ -31,6 +31,8 @@ def transform_news_data(data: dict):
     print("Created 'title_cleaned' and 'content_cleaned' for prediction model.")
 
     print("Transformation is completed.")
+
+    data_analysis(data_frame)
 
     return data_frame
 
