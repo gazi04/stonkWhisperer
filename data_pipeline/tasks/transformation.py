@@ -23,11 +23,11 @@ def transform_news_data(data: dict):
     print("Standardized the 'published_at' column to UTC datetime")
 
     initial_rows = len(data_frame)
-    data_frame.drop_duplicates(subset=['title', 'url', 'published_at'], keep='first', inplace=True)
+    data_frame.drop_duplicates(subset=["url"], keep="first", inplace=True)
     print(f"Removed {initial_rows - len(data_frame)} duplicate rows.")
 
-    data_frame['title_cleaned'] = data_frame['title'].apply(clean_text_for_nlp)
-    data_frame['content_cleaned'] = data_frame['content'].apply(clean_text_for_nlp)
+    data_frame["title_cleaned"] = data_frame["title"].apply(clean_text_for_nlp)
+    data_frame["content_cleaned"] = data_frame["content"].apply(clean_text_for_nlp)
     print("Created 'title_cleaned' and 'content_cleaned' for prediction model.")
 
     print("Transformation is completed.")
