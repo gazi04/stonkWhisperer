@@ -20,7 +20,7 @@ def load_news_data(data: pd.DataFrame, category: str):
                 content_cleaned=record.get("content_cleaned"),
                 sentiment_strategy=category,
                 published_at=record.get("published_at"),
-                source_name=record.get("source"),
+                source_name=record.get("source_name"),
                 url=record.get("url"),
             )
             articles.append(article)

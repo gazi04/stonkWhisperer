@@ -9,6 +9,10 @@ def transform_news_data(data: dict):
     print("Transforming News data...")
     data_frame = pd.DataFrame.from_dict(data)
 
+    data_frame["source"] = data_frame["source"].str.get("name")
+    data_frame.rename(columns={'source': 'source_name'}, inplace=True)
+    print("Extracted the name from the source and renamed the column to source_name")
+
     data_frame.rename(columns={"publishedAt": "published_at"}, inplace=True)
     print("Renamed column names to use snake case")
 

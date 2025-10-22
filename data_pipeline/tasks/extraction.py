@@ -34,7 +34,6 @@ def extract_news_data(query: str) -> list[dict]:
             
         for article, content in zip(articles, full_contents):
             article["content"] = content
-            article["source"] = article["source"]["name"]
 
         print(f"<- Finished fetching full content for {len(articles)} articles.")
         return articles
