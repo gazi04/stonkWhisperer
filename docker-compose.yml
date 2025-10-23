@@ -16,6 +16,7 @@ services:
     environment:
       - DATABASE_URL
       - NEWS_API_KEY
+      - PREFECT_API_URL=http://localhost:4200/api
     volumes:
       - ./data_pipeline:/app
     working_dir: /app
@@ -34,6 +35,36 @@ services:
     depends_on:
       - postgres
 
+  rabbitmq:
+    image: rabbitmq:3-management
+    env_file: .env
+    environment:
+      RABBITMQ_DEFAULT_USER:
+      RABBITMQ_DEFAULT_PASS:
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    ports:
+      - "15672:15672"
+    healthcheck:
+      test: ["CMD-SHELL", "rabbitmq-diagnostics -q ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+
+  celery-worker:
+      build: ./data_pipeline/
+      env_file: .env
+      depends_on:
+        - rabbitmq
+        - postgres
+      volumes:
+        - ./data_pipeline:/app
+      working_dir: /app
+      command: celery -A celery_app worker --loglevel=info
+      restart: always
+
 volumes:
   postgres_data:
   pgadmin_data:
+  rabbitmq_data:

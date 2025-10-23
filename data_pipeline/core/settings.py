@@ -5,4 +5,5 @@ class Settings(BaseSettings):
 
     news_api_key: str
     database_url: str
-
+    celery_broker_url: str
+    celery_result_backend: str
