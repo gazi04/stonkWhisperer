@@ -9,8 +9,14 @@ def transform_news_data(data: dict):
     print("Transforming News data...")
     data_frame = DataFrame.from_dict(data)
 
+    data_frame["source"] = data_frame["source"].str.get("name")
+    print("Extract name from the source")
+
+    data_frame = handle_missing_values(data_frame)
+    print("Handled missing values ")
+
     data_frame = (
-        DataFrame.from_dict(data)
+        data_frame
         .pipe(handle_missing_values)
         .rename(columns={
             "source": "source_name",
@@ -19,16 +25,6 @@ def transform_news_data(data: dict):
         .drop(columns=[col for col in ["urlToImage", "description"] if col in DataFrame.from_dict(data).columns])
     )
     print("Renamed and dropped columns.")
-
-    data_frame = handle_missing_values(data_frame)
-    print("Handled missing values ")
-
-    columns_to_drop = ["urlToImage", "description"]
-    data_frame = data_frame.drop(columns=[col for col in columns_to_drop if col in data_frame.columns])
-    print("Removed redundat column 'urlToImage' and description")
-
-    data_frame["published_at"] = pd.to_datetime(data_frame["published_at"], utc=True)
-    print("Standardized the 'published_at' column to UTC datetime")
 
     initial_rows = len(data_frame)
     data_frame = data_frame.drop_duplicates(subset=["url"], keep="first")
