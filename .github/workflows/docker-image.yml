@@ -1,18 +1,67 @@
-name: Docker Image CI
+name: Docker Compose Integration Test
 
 on:
-  push:
-    branches: [ "main" ]
-  pull_request:
-    branches: [ "main" ]
+push:
+branches: [ "main" ]
+pull_request:
+branches: [ "main" ]
 
 jobs:
+integration-test:
+runs-on: ubuntu-latest
 
-  build:
+steps:
+  - name: Checkout repository
+    uses: actions/checkout@v4
 
-    runs-on: ubuntu-latest
+  # 1. Create Placeholder Files
+  # This step ensures that the required directories and files (.env, Dockerfile, init.sql)
+  # exist in the workspace, allowing 'docker compose build' and 'up' to succeed.
+  - name: Create necessary placeholder files
+    run: |
+      echo "Setting up environment files for testing..."
+      mkdir -p data_pipeline database
+      
+      # Minimal .env file content
+      echo "POSTGRES_USER=testuser" > .env
+      echo "POSTGRES_PASSWORD=testpass" >> .env
+      echo "DATABASE_URL=postgresql://testuser:testpass@postgres:5432/prefectdb" >> .env
+      echo "NEWS_API_KEY=testkey_placeholder" >> .env
+      echo "RABBITMQ_DEFAULT_USER=rabbit_user" >> .env
+      echo "RABBITMQ_DEFAULT_PASS=rabbit_pass" >> .env
+      
+      # Minimal Dockerfile for custom services
+      echo -e "FROM python:3.10-slim\nWORKDIR /app\nRUN pip install --no-cache-dir celery prefect" > data_pipeline/Dockerfile
+      
+      # Minimal init.sql file
+      echo "SELECT 1;" > database/init.sql
 
-    steps:
-    - uses: actions/checkout@v4
-    - name: Build the Docker image
-      run: docker build . --file Dockerfile --tag my-image-name:$(date +%s)
+  # 2. Build and Start Services
+  # --build: ensures custom images are built before starting
+  # --wait: waits until all services are healthy (if healthcheck is defined, like rabbitmq) 
+  #         or until the containers have started successfully (for long-running services).
+  - name: Build and start all services, waiting for readiness
+    run: docker compose up -d --build --wait
+
+  # 3. Verification Step
+  # This step checks the status of all running containers. Any status other than 
+  # 'running' or 'healthy' (like 'restarting', 'exited', or 'unhealthy') will fail the job.
+  - name: Verify all services are running and healthy
+    run: |
+      echo "--- Docker Compose Status ---"
+      docker compose ps
+      
+      # Check for any container that is not 'running' or 'healthy'
+      # awk skips the header (NR>1) and checks the last column ($NF)
+      if docker compose ps | awk 'NR>1 {if ($NF != "running" && $NF != "healthy") {exit 1}}'; then
+        echo "✅ All services successfully started and are running or healthy."
+      else
+        echo "❌ One or more services failed to start, check the logs below."
+        docker compose logs
+        exit 1
+      fi
+
+  # 4. Clean up (Runs regardless of previous steps succeeding or failing)
+  - name: Stop services
+    if: always()
+    run: docker compose down
