@@ -7,27 +7,31 @@ import re
 @task
 def transform_news_data(data: dict):
     print("Transforming News data...")
-    data_frame = pd.DataFrame.from_dict(data)
+    data_frame = DataFrame.from_dict(data)
 
-    data_frame["source"] = data_frame["source"].str.get("name")
-    data_frame.rename(columns={'source': 'source_name'}, inplace=True)
-    print("Extracted the name from the source and renamed the column to source_name")
-
-    data_frame.rename(columns={"publishedAt": "published_at"}, inplace=True)
-    print("Renamed column names to use snake case")
+    data_frame = (
+        DataFrame.from_dict(data)
+        .pipe(handle_missing_values)
+        .rename(columns={
+            "source": "source_name",
+            "publishedAt": "published_at"
+        })
+        .drop(columns=[col for col in ["urlToImage", "description"] if col in DataFrame.from_dict(data).columns])
+    )
+    print("Renamed and dropped columns.")
 
     data_frame = handle_missing_values(data_frame)
     print("Handled missing values ")
 
     columns_to_drop = ["urlToImage", "description"]
-    data_frame.drop(columns=[col for col in columns_to_drop if col in data_frame.columns], inplace=True)
+    data_frame = data_frame.drop(columns=[col for col in columns_to_drop if col in data_frame.columns])
     print("Removed redundat column 'urlToImage' and description")
 
     data_frame["published_at"] = pd.to_datetime(data_frame["published_at"], utc=True)
     print("Standardized the 'published_at' column to UTC datetime")
 
     initial_rows = len(data_frame)
-    data_frame.drop_duplicates(subset=["url"], keep="first", inplace=True)
+    data_frame = data_frame.drop_duplicates(subset=["url"], keep="first")
     print(f"Removed {initial_rows - len(data_frame)} duplicate rows.")
 
     data_frame["title_cleaned"] = data_frame["title"].apply(clean_text_for_nlp)
@@ -56,7 +60,7 @@ def transform_alpaca_data(data):
 # HELPER METHODS
 # ----------------------------------------
 
-# 1. FOR THE NEWSAPI TRANSFORMATION
+# 1. FOR THE NEWS API TRANSFORMATION
 def data_analysis(data: DataFrame):
     print("Head data")
     print(data.head())
@@ -80,14 +84,14 @@ def data_analysis(data: DataFrame):
 def handle_missing_values(dt: DataFrame) -> DataFrame:
     original_rows = len(dt)
     
-    dt.dropna(subset=["title", "content"], how="all", inplace=True)
-    
     dt["author"] = dt["author"].fillna("No Author")
-    dt["content"] = dt["content"].fillna(dt["description"].fillna(dt["title"].fillna("")))
     dt["title"] = dt["title"].fillna("Untitled Article")
+    dt["content"] = dt["content"].fillna(dt["description"].fillna(dt["title"]))
+    
+    dt_cleaned = dt.dropna(subset=["content"], how="any")
 
-    print(f"Dropped {original_rows - len(dt)} rows due to missing critical data.")
-    return dt
+    print(f"Dropped {original_rows - len(dt_cleaned)} rows due to missing critical data.")
+    return dt_cleaned
 
 def clean_text_for_nlp(text: str) -> str:
     if pd.isna(text) or text is None:
