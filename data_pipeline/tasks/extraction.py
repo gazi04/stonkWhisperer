@@ -7,6 +7,7 @@ from typing import Optional
 from celery_app import app
 from core.config_loader import settings
 
+import praw
 import trafilatura
 
 
@@ -60,11 +61,17 @@ def extract_praw_data(subreddit: str) -> list[dict]:
     Connects to Reddit via PRAW to fetch posts from a specified subreddit.
     """
     print(f"-> Starting PRAW extraction from subreddit: {subreddit}")
-    
-    # Placeholder for PRAW SDK interaction
-    # Example: reddit = praw.Reddit('...')
-    # subreddit = reddit.subreddit(subreddit)
-    # return [post for post in subreddit.hot(limit=20)]
+
+    reddit = praw.Reddit(
+        client_id=settings.reddit_client_id,
+        client_secret=settings.reddit_client_secret,
+        username=settings.reddit_username,
+        password=settings.reddit_password,
+        user_agent=settings.reddit_user_agent,
+    )
+
+    subreddit = reddit.subreddit(subreddit)
+    new_posts = subreddit.new(limit=100)
 
     return [{"source": "PRAW", "post": f"Post {i}"} for i in range(5)]
 
