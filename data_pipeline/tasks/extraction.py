@@ -146,12 +146,5 @@ def get_full_article(url: str) -> Optional[str]:
 # UTIL FUNCTIONS
 # ------------------------------
 def prepare_reddit_query(flairs: list[str]) -> str:
-    if len(flairs) == 0: return ""
-
-    query = ""
-    for index in range(len(flairs)):
-        if index == len(flairs) - 1:
-            return query + f"flair:\"{flairs[index]}\""
-        query += f"flair:\"{flairs[index]}\" OR "
-
-    return query
+    flair_queries = [f'flair:"{flair}"' for flair in flairs]
+    return " OR ".join(flair_queries)
