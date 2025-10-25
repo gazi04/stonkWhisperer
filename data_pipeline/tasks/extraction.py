@@ -1,6 +1,7 @@
 from celery import group
 from newsapi import NewsApiClient
 from newsapi.newsapi_exception import NewsAPIException
+from praw.exceptions import APIException, ClientException
 from prefect import task
 from typing import Optional
 
@@ -56,7 +57,7 @@ def extract_news_data(query: str) -> list[dict]:
 
 
 @task(name="Extract PRAW Data")
-def extract_praw_data(subreddit: str) -> list[dict]:
+def extract_praw_data(subreddit: str, flairs: list[str]) -> list[dict]:
     """
     Connects to Reddit via PRAW to fetch posts from a specified subreddit.
     """
@@ -70,10 +71,50 @@ def extract_praw_data(subreddit: str) -> list[dict]:
         user_agent=settings.reddit_user_agent,
     )
 
-    subreddit = reddit.subreddit(subreddit)
-    new_posts = subreddit.new(limit=100)
+    subreddit_obj = reddit.subreddit(subreddit)
+    post_list: list = []
+    
+    try: 
+        if flairs:
+            data = subreddit_obj.search(
+                query=prepare_reddit_query(flairs),
+                sort="new",
+                limit=100
+            ) 
+        else:
+            data = subreddit_obj.new(limit=100)
+    except APIException as api_e:
+        print(f"PRAW API call failed during fetch. Reason: {api_e}")
+        raise RuntimeError(f"PRAW Extraction Failed(API Error): {api_e}")
+    except ClientException as client_e:
+        print(f"PRAW Client connection issue. Reason: {client_e}")
+        raise RuntimeError(f"PRAW Extraction Failed(Client Error): {client_e}")
+    except Exception as e:
+        print(f"PRAW extraction failed for r/{subreddit}. Reason: {e}")
+        raise RuntimeError(f"PRAW Extraction Failed(Unhandled Error): {e}")
 
-    return [{"source": "PRAW", "post": f"Post {i}"} for i in range(5)]
+    try:
+        for post in data:
+            post_list.append({
+                "reddit_id": post.id,
+                "subreddit": post.subreddit.display_name,
+                "author": post.author.name if post.author else "[deleted]",
+                "title": post.title,
+                "selftext": post.selftext, 
+                "score": post.score,
+                "num_comments": post.num_comments,
+                "is_text_post": post.is_self,
+                "url": post.url,
+                "link_flair_text": post.link_flair_text or "",
+                "upvote_ratio": post.upvote_ratio,
+                "permalink": post.permalink,
+                "published_at": post.created_utc,
+            })
+    except Exception as e:
+        print(f"PRAW failed during mapping the fetch data inot a list. Reason: {e}")
+        raise RuntimeError(f"PRAW Mapping Extraction Failed: {e}")
+
+    return post_list
 
 @task(name="Extract Alpaca Data")
 def extract_alpaca_data(symbol: str) -> list[dict]:
@@ -88,6 +129,9 @@ def extract_alpaca_data(symbol: str) -> list[dict]:
 
     return [{"source": "Alpaca", "price": 150.50, "symbol": symbol}]
 
+# ------------------------------
+# CELERY TASKS
+# ------------------------------
 @app.task(name="fetch_article_content")
 def get_full_article(url: str) -> Optional[str]:
     """
@@ -97,3 +141,17 @@ def get_full_article(url: str) -> Optional[str]:
     # print(f"    -> [Worker] Fetching content for: {url[:50]}...")
     downloaded = trafilatura.fetch_url(url)
     return trafilatura.extract(downloaded)
+
+# ------------------------------
+# UTIL FUNCTIONS
+# ------------------------------
+def prepare_reddit_query(flairs: list[str]) -> str:
+    if len(flairs) == 0: return ""
+
+    query = ""
+    for index in range(len(flairs)):
+        if index == len(flairs) - 1:
+            return query + f"flair:\"{flairs[index]}\""
+        query += f"flair:\"{flairs[index]}\" OR "
+
+    return query
