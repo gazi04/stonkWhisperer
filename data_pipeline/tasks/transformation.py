@@ -42,8 +42,52 @@ def transform_news_data(data: dict):
 
 
 @task
-def transform_praw_data(data):
+def transform_praw_data(data: list[dict]):
     print("Transforming PRAW data...")
+    data_frame = DataFrame(data)
+
+    data_frame["published_at"] = pd.to_datetime(
+        data_frame["published_at"], 
+        unit="s", 
+        utc=True
+    )
+    print("Standardized 'published_at' from Unix timestamp to UTC datetime.")
+
+    data_frame = data_frame.rename(columns={
+        "selftext": "body_text",
+        "num_comments": "number_of_comments",
+        "link_flair_text": "subreddit_category"
+    })
+    print("Renamed columns")
+
+    initial_rows = len(data_frame)
+    data_frame = data_frame.drop_duplicates(
+        subset=["reddit_id", "url", "permalink"],
+        keep="first"
+    )
+    print(f"Removed {initial_rows - len(data_frame)} duplicate rows.")
+
+    initial_rows = len(data_frame)
+    data_frame = data_frame.dropna(
+        subset=["reddit_id", "subreddit", "url", "published_at"],
+        how="any"
+    )
+    print(f"Removed {initial_rows - len(data_frame)} rows without a reddit_id or a subreddit or a url or a published_at.")
+
+    data_frame = data_frame.fillna({
+        "body_text": "No text",
+        "subreddit_category": "No category",
+        "score": 0,
+        "number_of_comments": 0,
+        "upvote_ratio": 0.5
+    })
+    data_frame["permalink"] = data_frame["permalink"].fillna(f"https://www.reddit.com/r/{data_frame['subreddit']}")
+    data_frame["score"] = data_frame["score"].astype(int)
+    data_frame["number_of_comments"] = data_frame["number_of_comments"].astype(int)
+    print("Handled missing values")
+
+    data_analysis(data_frame)
+
     return data
 
 
