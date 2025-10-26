@@ -93,6 +93,7 @@ def extract_praw_data(subreddit: str, flairs: list[str]) -> list[dict]:
         print(f"PRAW extraction failed for r/{subreddit}. Reason: {e}")
         raise RuntimeError(f"PRAW Extraction Failed(Unhandled Error): {e}")
 
+    task_signature = []
     try:
         for post in data:
             post_list.append({
@@ -110,9 +111,20 @@ def extract_praw_data(subreddit: str, flairs: list[str]) -> list[dict]:
                 "permalink": post.permalink,
                 "published_at": post.created_utc,
             })
+            
+            task_signature.append(get_full_article.s(post.url))
     except Exception as e:
         print(f"PRAW failed during mapping the fetch data inot a list. Reason: {e}")
         raise RuntimeError(f"PRAW Mapping Extraction Failed: {e}")
+
+    result = group(task_signature).apply_async()
+
+    try:
+        full_contents = result.get(timeout=300) 
+        for post, article in zip(post_list, full_contents):
+            post["content"] = article
+    except Exception as e:
+        print(f"Error retrieving Celery results (Timeout or Task Failure): {e}")
 
     return post_list
 
