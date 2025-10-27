@@ -12,17 +12,21 @@ from core.config_loader import settings
 
 import praw
 
-#------------------------------
+# ------------------------------
 # CONSTANTS
-#------------------------------
+# ------------------------------
 DEFAULT_ARTICLE_DATA = {
     "article_headline": None,
     "article_author": None,
     "article_publisher": None,
     "article_content": None,
-    "article_published_at": None
+    "article_published_at": None,
 }
 
+
+# ------------------------------
+# PREFECT TASKS
+# ------------------------------
 @task(name="Extract NewsAPI Data")
 def extract_news_data(query: str) -> list[dict]:
     """
@@ -33,25 +37,31 @@ def extract_news_data(query: str) -> list[dict]:
 
     try:
         api = NewsApiClient(api_key=settings.news_api_key)
-        data = api.get_everything(q=query, language="en", from_param="2025-10-20", to="2025-10-21")
+        data = api.get_everything(
+            q=query, language="en", from_param="2025-10-20", to="2025-10-21"
+        )
         articles = data["articles"]
-        
+
         if not articles:
             print("No articles found.")
             return []
 
         print(f"-> Starting concurrent content fetch for {len(articles)} articles.")
-        
-        print(f"-> Dispatching {len(articles)} article content fetching tasks to Celery.")
-        
+
+        print(
+            f"-> Dispatching {len(articles)} article content fetching tasks to Celery."
+        )
+
         task_signatures = [get_full_article.s(article["url"]) for article in articles]
-        
+
         task_group = group(task_signatures)
         result = task_group.apply_async()
 
-        print("-> Waiting for Celery workers to return full content (Max 300s timeout)...")
+        print(
+            "-> Waiting for Celery workers to return full content (Max 300s timeout)..."
+        )
         try:
-            full_contents = result.get(timeout=300) 
+            full_contents = result.get(timeout=300)
         except Exception as e:
             print(f"Error retrieving Celery results (Timeout or Task Failure): {e}")
             # If the group fails or times out, return None for all contents to continue flow
@@ -61,7 +71,7 @@ def extract_news_data(query: str) -> list[dict]:
             article["content"] = content
 
         print(f"<- Finished fetching full content for {len(articles)} articles.")
-        
+
         return articles
     except NewsAPIException as ex:
         raise ex
@@ -84,14 +94,12 @@ def extract_praw_data(subreddit: str, flairs: list[str]) -> list[dict]:
 
     subreddit_obj = reddit.subreddit(subreddit)
     post_list: list = []
-    
-    try: 
+
+    try:
         if flairs:
             data = subreddit_obj.search(
-                query=prepare_reddit_query(flairs),
-                sort="new",
-                limit=100
-            ) 
+                query=prepare_reddit_query(flairs), sort="new", limit=100
+            )
         else:
             data = subreddit_obj.new(limit=100)
     except APIException as api_e:
@@ -107,50 +115,59 @@ def extract_praw_data(subreddit: str, flairs: list[str]) -> list[dict]:
     task_signatures = []
     try:
         for post in data:
-            post_list.append({
-                "reddit_id": post.id,
-                "subreddit": post.subreddit.display_name,
-                "author": post.author.name if post.author else "[deleted]",
-                "title": post.title,
-                "selftext": post.selftext, 
-                "score": post.score,
-                "num_comments": post.num_comments,
-                "is_text_post": post.is_self,
-                "url": post.url,
-                "link_flair_text": post.link_flair_text or "",
-                "upvote_ratio": post.upvote_ratio,
-                "permalink": post.permalink,
-                "published_at": post.created_utc,
-            })
+            post_list.append(
+                {
+                    "reddit_id": post.id,
+                    "subreddit": post.subreddit.display_name,
+                    "author": post.author.name if post.author else "[deleted]",
+                    "title": post.title,
+                    "selftext": post.selftext,
+                    "score": post.score,
+                    "num_comments": post.num_comments,
+                    "is_text_post": post.is_self,
+                    "url": post.url,
+                    "link_flair_text": post.link_flair_text or "",
+                    "upvote_ratio": post.upvote_ratio,
+                    "permalink": post.permalink,
+                    "published_at": post.created_utc,
+                }
+            )
 
             if not post.is_self:
-                task_signatures.append(fetch_article_task.s(post.url)) 
+                task_signatures.append(fetch_article_task.s(post.url))
             else:
                 task_signatures.append(fetch_article_task.s(None))
-            
+
     except Exception as e:
         print(f"PRAW failed during mapping the fetch data inot a list. Reason: {e}")
         raise RuntimeError(f"PRAW Mapping Extraction Failed: {e}")
 
-    print(f"-> Dispatching {len(task_signatures)} article content fetching tasks to Celery.")
+    print(
+        f"-> Dispatching {len(task_signatures)} article content fetching tasks to Celery."
+    )
 
     task_group = group(task_signatures)
     result = task_group.apply_async()
 
-    print("-> Waiting for Celery workers to return full article data (Max 300s timeout)...")
+    print(
+        "-> Waiting for Celery workers to return full article data (Max 300s timeout)..."
+    )
     full_article_data = []
     try:
-        full_article_data = result.get(timeout=300) 
+        full_article_data = result.get(timeout=300)
     except Exception as e:
         print(f"Error retrieving Celery results (Timeout or Task Failure): {e}")
         full_article_data = [DEFAULT_ARTICLE_DATA] * len(post_list)
 
     for post, article_data in zip(post_list, full_article_data):
         # If fetch failed or timed out, add default empty structure
-        post.update(article_data) if isinstance(article_data, dict) else post.update(DEFAULT_ARTICLE_DATA)
+        post.update(article_data) if isinstance(article_data, dict) else post.update(
+            DEFAULT_ARTICLE_DATA
+        )
 
     print(f"<- Finished fetching content for {len(post_list)} posts/articles.")
     return post_list
+
 
 @task(name="Extract Alpaca Data")
 def extract_alpaca_data(symbol: str) -> list[dict]:
@@ -158,12 +175,13 @@ def extract_alpaca_data(symbol: str) -> list[dict]:
     Connects to Alpaca-Py SDK to fetch market data for a stock symbol.
     """
     print(f"-> Starting Alpaca-Py extraction for symbol: {symbol}")
-    
+
     # Placeholder for Alpaca-Py SDK interaction
     # Example: trading_client = TradingClient(ALPACA_KEY_ID, ALPACA_SECRET_KEY)
     # data = trading_client.get_latest_bar(symbol)
 
     return [{"source": "Alpaca", "price": 150.50, "symbol": symbol}]
+
 
 # ------------------------------
 # CELERY TASKS
@@ -193,10 +211,12 @@ def get_full_article(url: str) -> Optional[str]:
 
     try:
         extracted_content = extract(downloaded)
-        
+
         if extracted_content is None:
-            print(f"WARNING: Trafilatura failed to extract content from the downloaded data for '{url}'.")
-            
+            print(
+                f"WARNING: Trafilatura failed to extract content from the downloaded data for '{url}'."
+            )
+
         return extracted_content
     except Exception as e:
         print(f"ERROR: An exception occurred during content extraction: {e}")
@@ -223,10 +243,14 @@ def fetch_article_task(url: str) -> Optional[dict]:
     try:
         article = extract(downloaded)
         meta = extract_metadata(downloaded)
-        
+
         if article is None or meta is None:
-            failed_item = "content" if article is None else "metadata" if meta is None else "data"
-            print(f"WARNING: Trafilatura failed to extract {failed_item} from the downloaded data for '{url}'.")
+            failed_item = (
+                "content" if article is None else "metadata" if meta is None else "data"
+            )
+            print(
+                f"WARNING: Trafilatura failed to extract {failed_item} from the downloaded data for '{url}'."
+            )
             return None
 
         print(f"The article headline: {meta.title}")
@@ -238,7 +262,7 @@ def fetch_article_task(url: str) -> Optional[dict]:
             "article_author": meta.author,
             "article_publisher": meta.sitename,
             "article_content": article,
-            "article_published_at": meta.date
+            "article_published_at": meta.date,
         }
     except Exception as e:
         print(f"ERROR: An exception occurred during content extraction: {e}")
