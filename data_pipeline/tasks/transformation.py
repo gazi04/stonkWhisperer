@@ -4,6 +4,10 @@ from prefect import task
 import pandas as pd
 import re
 
+
+# ----------------------------------------
+# PREFECT TASKS
+# ----------------------------------------
 @task
 def transform_news_data(data: dict):
     print("Transforming News data...")
@@ -16,13 +20,20 @@ def transform_news_data(data: dict):
     print("Handled missing values ")
 
     data_frame = (
-        data_frame
-        .pipe(handle_missing_values)
-        .rename(columns={
-            "source": "source_name",
-            "publishedAt": "published_at"
-        })
-        .drop(columns=[col for col in ["urlToImage", "description"] if col in DataFrame.from_dict(data).columns])
+        data_frame.pipe(handle_missing_values)
+        .rename(
+            columns={
+                "source": "source_name",
+                "publishedAt": "published_at",
+            }
+        )
+        .drop(
+            columns=[
+                col
+                for col in ["urlToImage", "description"]
+                if col in DataFrame.from_dict(data).columns
+            ]
+        )
     )
     print("Renamed and dropped columns.")
 
@@ -47,44 +58,66 @@ def transform_praw_data(data: list[dict]):
     data_frame = DataFrame(data)
 
     data_frame["published_at"] = pd.to_datetime(
-        data_frame["published_at"], 
-        unit="s", 
-        utc=True
+        data_frame["published_at"], unit="s", utc=True
     )
     print("Standardized 'published_at' from Unix timestamp to UTC datetime.")
 
-    data_frame = data_frame.rename(columns={
-        "selftext": "body_text",
-        "num_comments": "number_of_comments",
-        "link_flair_text": "subreddit_category"
-    })
+    data_frame = data_frame.rename(
+        columns={
+            "selftext": "body_text",
+            "num_comments": "number_of_comments",
+            "link_flair_text": "subreddit_category",
+            "permalink": "post_url",
+            "url": "external_url",
+        }
+    )
     print("Renamed columns")
 
     initial_rows = len(data_frame)
     data_frame = data_frame.drop_duplicates(
-        subset=["reddit_id", "url", "permalink"],
-        keep="first"
+        subset=["reddit_id", "external_url", "post_url"], keep="first"
     )
     print(f"Removed {initial_rows - len(data_frame)} duplicate rows.")
 
     initial_rows = len(data_frame)
     data_frame = data_frame.dropna(
-        subset=["reddit_id", "subreddit", "url", "published_at"],
-        how="any"
+        subset=["reddit_id", "subreddit", "published_at"], how="any"
     )
-    print(f"Removed {initial_rows - len(data_frame)} rows without a reddit_id or a subreddit or a url or a published_at.")
+    print(
+        f"Removed {initial_rows - len(data_frame)} rows without a reddit_id or a subreddit or a url or a published_at."
+    )
 
-    data_frame = data_frame.fillna({
-        "body_text": "No text",
-        "subreddit_category": "No category",
-        "score": 0,
-        "number_of_comments": 0,
-        "upvote_ratio": 0.5
-    })
-    data_frame["permalink"] = data_frame["permalink"].fillna(f"https://www.reddit.com/r/{data_frame['subreddit']}")
+    data_frame["post_url"] = data_frame["post_url"].fillna(
+        f"https://www.reddit.com/r/{data_frame['subreddit']}"
+    )
+    data_frame = data_frame.fillna(
+        {
+            "body_text": "No text",
+            "content": "No text",
+            "subreddit_category": "No category",
+            "external_url": data_frame["post_url"],
+            "score": 0,
+            "number_of_comments": 0,
+            "upvote_ratio": 0.5,
+            "article_headline": "No headline",
+            "article_author": "No author",
+            "article_publisher": "No publisher",
+            "article_content": "No content",
+            "article_published_at": "No published date",
+        }
+    )
     data_frame["score"] = data_frame["score"].astype(int)
     data_frame["number_of_comments"] = data_frame["number_of_comments"].astype(int)
-    print("Handled missing values")
+
+    data_frame["article_headline_cleaned"] = data_frame["article_headline"].apply(
+        clean_text_for_nlp
+    )
+    data_frame["article_content_cleaned"] = data_frame["article_content"].apply(
+        clean_text_for_nlp
+    )
+    print(
+        "Created 'article_headline_cleaned' and 'article_content_cleaned' for prediction model."
+    )
 
     data_analysis(data_frame)
 
@@ -96,9 +129,11 @@ def transform_alpaca_data(data):
     print("Transforming Alpaca data...")
     return data
 
+
 # ----------------------------------------
 # HELPER METHODS
 # ----------------------------------------
+
 
 # 1. FOR THE NEWS API TRANSFORMATION
 def data_analysis(data: DataFrame):
@@ -123,28 +158,34 @@ def data_analysis(data: DataFrame):
 
 def handle_missing_values(dt: DataFrame) -> DataFrame:
     original_rows = len(dt)
-    
+
     dt["author"] = dt["author"].fillna("No Author")
     dt["title"] = dt["title"].fillna("Untitled Article")
     dt["content"] = dt["content"].fillna(dt["description"].fillna(dt["title"]))
-    
+
     dt_cleaned = dt.dropna(subset=["content"], how="any")
 
-    print(f"Dropped {original_rows - len(dt_cleaned)} rows due to missing critical data.")
+    print(
+        f"Dropped {original_rows - len(dt_cleaned)} rows due to missing critical data."
+    )
     return dt_cleaned
+
 
 def clean_text_for_nlp(text: str) -> str:
     if pd.isna(text) or text is None:
         return ""
-    
+
     text = str(text).lower()
     text = re.sub(r"<[^>]+>", "", text)
     text = re.sub(r"http\S+|www\S+|https\S+", "", text, flags=re.MULTILINE)
-    text = re.sub(r"\[\+\d+ chars\]", "", text).strip() # Removes from 'content' remnants like "[+4561 chars]" or similar brackets
-    text = re.sub(r"[^\w\s.!?]", "", text)              # Removes non-alphanumeric characters
+    text = (
+        re.sub(r"\[\+\d+ chars\]", "", text).strip()
+    )  # Removes from 'content' remnants like "[+4561 chars]" or similar brackets
+    text = re.sub(r"[^\w\s.!?]", "", text)  # Removes non-alphanumeric characters
     text = re.sub(r"\s+", " ", text).strip()
 
     return text
+
 
 # 2. FOR THE REDDIT TRANSFORMATION
 
