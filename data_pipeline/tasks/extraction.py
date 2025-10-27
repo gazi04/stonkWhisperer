@@ -3,14 +3,25 @@ from newsapi import NewsApiClient
 from newsapi.newsapi_exception import NewsAPIException
 from praw.exceptions import APIException, ClientException
 from prefect import task
+from requests import RequestException
+from trafilatura import fetch_url, extract, extract_metadata
 from typing import Optional
 
 from celery_app import app
 from core.config_loader import settings
 
 import praw
-import trafilatura
 
+#------------------------------
+# CONSTANTS
+#------------------------------
+DEFAULT_ARTICLE_DATA = {
+    "article_headline": None,
+    "article_author": None,
+    "article_publisher": None,
+    "article_content": None,
+    "article_published_at": None
+}
 
 @task(name="Extract NewsAPI Data")
 def extract_news_data(query: str) -> list[dict]:
@@ -93,7 +104,7 @@ def extract_praw_data(subreddit: str, flairs: list[str]) -> list[dict]:
         print(f"PRAW extraction failed for r/{subreddit}. Reason: {e}")
         raise RuntimeError(f"PRAW Extraction Failed(Unhandled Error): {e}")
 
-    task_signature = []
+    task_signatures = []
     try:
         for post in data:
             post_list.append({
@@ -111,21 +122,34 @@ def extract_praw_data(subreddit: str, flairs: list[str]) -> list[dict]:
                 "permalink": post.permalink,
                 "published_at": post.created_utc,
             })
+
+            if not post.is_self:
+                task_signatures.append(fetch_article_task.s(post.url)) 
+            else:
+                task_signatures.append(fetch_article_task.s(None))
             
-            task_signature.append(get_full_article.s(post.url))
     except Exception as e:
         print(f"PRAW failed during mapping the fetch data inot a list. Reason: {e}")
         raise RuntimeError(f"PRAW Mapping Extraction Failed: {e}")
 
-    result = group(task_signature).apply_async()
+    print(f"-> Dispatching {len(task_signatures)} article content fetching tasks to Celery.")
 
+    task_group = group(task_signatures)
+    result = task_group.apply_async()
+
+    print("-> Waiting for Celery workers to return full article data (Max 300s timeout)...")
+    full_article_data = []
     try:
-        full_contents = result.get(timeout=300) 
-        for post, article in zip(post_list, full_contents):
-            post["content"] = article
+        full_article_data = result.get(timeout=300) 
     except Exception as e:
         print(f"Error retrieving Celery results (Timeout or Task Failure): {e}")
+        full_article_data = [DEFAULT_ARTICLE_DATA] * len(post_list)
 
+    for post, article_data in zip(post_list, full_article_data):
+        # If fetch failed or timed out, add default empty structure
+        post.update(article_data) if isinstance(article_data, dict) else post.update(DEFAULT_ARTICLE_DATA)
+
+    print(f"<- Finished fetching content for {len(post_list)} posts/articles.")
     return post_list
 
 @task(name="Extract Alpaca Data")
@@ -153,6 +177,73 @@ def get_full_article(url: str) -> Optional[str]:
     # print(f"    -> [Worker] Fetching content for: {url[:50]}...")
     downloaded = trafilatura.fetch_url(url)
     return trafilatura.extract(downloaded)
+    downloaded = None
+    try:
+        downloaded = fetch_url(url)
+    except RequestException as e:
+        print(f"ERROR: Failed to download URL '{url}'. Network/Connection Issue: {e}")
+        return None
+    except Exception as e:
+        print(f"ERROR: An unexpected error occurred during fetch_url: {e}")
+        return None
+
+    if downloaded is None:
+        print(f"WARNING: No content downloaded for URL '{url}'.")
+        return None
+
+    try:
+        extracted_content = extract(downloaded)
+        
+        if extracted_content is None:
+            print(f"WARNING: Trafilatura failed to extract content from the downloaded data for '{url}'.")
+            
+        return extracted_content
+    except Exception as e:
+        print(f"ERROR: An exception occurred during content extraction: {e}")
+        return None
+
+
+@app.task(name="fetch_article")
+def fetch_article_task(url: str) -> Optional[dict]:
+    downloaded = None
+
+    try:
+        downloaded = fetch_url(url)
+    except RequestException as e:
+        print(f"ERROR: Failed to download URL '{url}'. Network/Connection Issue: {e}")
+        return None
+    except Exception as e:
+        print(f"ERROR: An unexpected error occurred during fetch_url: {e}")
+        return None
+
+    if downloaded is None:
+        print(f"WARNING: No content downloaded for URL '{url}'.")
+        return None
+
+    try:
+        article = extract(downloaded)
+        meta = extract_metadata(downloaded)
+        
+        if article is None or meta is None:
+            failed_item = "content" if article is None else "metadata" if meta is None else "data"
+            print(f"WARNING: Trafilatura failed to extract {failed_item} from the downloaded data for '{url}'.")
+            return None
+
+        print(f"The article headline: {meta.title}")
+        print(f"Article author: {meta.author}")
+        print(f"Article sitename: {meta.sitename}")
+        print(f"Article published date: {meta.date}")
+        return {
+            "article_headline": meta.title,
+            "article_author": meta.author,
+            "article_publisher": meta.sitename,
+            "article_content": article,
+            "article_published_at": meta.date
+        }
+    except Exception as e:
+        print(f"ERROR: An exception occurred during content extraction: {e}")
+        return None
+
 
 # ------------------------------
 # UTIL FUNCTIONS
