@@ -121,7 +121,7 @@ def transform_praw_data(data: list[dict]):
 
     data_analysis(data_frame)
 
-    return data
+    return data_frame
 
 
 @task
