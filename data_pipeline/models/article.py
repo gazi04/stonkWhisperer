@@ -24,7 +24,7 @@ class Article(Base):
 
     # --- Content & Author ---
     author: Mapped[Optional[str]] = mapped_column(
-        String(255),
+        String(500),
         default="No Author",
         comment="The article author (set to 'No Author' if missing)."
     )
@@ -62,6 +62,8 @@ class Article(Base):
     )
     url: Mapped[str] = mapped_column(
         String(2048),
+        unique=True,
+        index=True,
         comment="The source URL of the article."
     )
 
