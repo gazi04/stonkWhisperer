@@ -67,15 +67,15 @@ def transform_praw_data(data: list[dict]):
             "selftext": "body_text",
             "num_comments": "number_of_comments",
             "link_flair_text": "subreddit_category",
-            "permalink": "post_url",
-            "url": "external_url",
+            "permalink": "reddit_post_url",
+            "url": "article_url",
         }
     )
     print("Renamed columns")
 
     initial_rows = len(data_frame)
     data_frame = data_frame.drop_duplicates(
-        subset=["reddit_id", "external_url", "post_url"], keep="first"
+        subset=["reddit_id", "article_url", "reddit_post_url"], keep="first"
     )
     print(f"Removed {initial_rows - len(data_frame)} duplicate rows.")
 
@@ -87,7 +87,7 @@ def transform_praw_data(data: list[dict]):
         f"Removed {initial_rows - len(data_frame)} rows without a reddit_id or a subreddit or a url or a published_at."
     )
 
-    data_frame["post_url"] = data_frame["post_url"].fillna(
+    data_frame["reddit_post_url"] = data_frame["reddit_post_url"].fillna(
         f"https://www.reddit.com/r/{data_frame['subreddit']}"
     )
     data_frame = data_frame.fillna(
@@ -95,7 +95,7 @@ def transform_praw_data(data: list[dict]):
             "body_text": "No text",
             "content": "No text",
             "subreddit_category": "No category",
-            "external_url": data_frame["post_url"],
+            "article_url": data_frame["reddit_post_url"],
             "score": 0,
             "number_of_comments": 0,
             "upvote_ratio": 0.5,
@@ -103,11 +103,19 @@ def transform_praw_data(data: list[dict]):
             "article_author": "No author",
             "article_publisher": "No publisher",
             "article_content": "No content",
-            "article_published_at": "No published date",
         }
     )
     data_frame["score"] = data_frame["score"].astype(int)
     data_frame["number_of_comments"] = data_frame["number_of_comments"].astype(int)
+    
+    data_frame["article_published_at"] = pd.to_datetime(
+        data_frame["article_published_at"],
+        errors='coerce', # Handling None values
+        utc=True
+    )
+    # Explicitly replace NaT (Not a Time) with None for SQLAlchemy/Postgres
+    # because otherwise if we pass to NaT value to the database it would cause an error
+    data_frame["article_published_at"] = data_frame["article_published_at"].replace({pd.NaT: None})
 
     data_frame["article_headline_cleaned"] = data_frame["article_headline"].apply(
         clean_text_for_nlp
