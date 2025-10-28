@@ -192,9 +192,6 @@ def get_full_article(url: str) -> Optional[str]:
     Celery task to fetch and extract content from a single URL.
     This will run on the dedicated celery-worker container.
     """
-    # print(f"    -> [Worker] Fetching content for: {url[:50]}...")
-    downloaded = trafilatura.fetch_url(url)
-    return trafilatura.extract(downloaded)
     downloaded = None
     try:
         downloaded = fetch_url(url)
