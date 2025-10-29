@@ -151,10 +151,10 @@ def insert_reddit_posts_task(records: List[Dict[str, Any]]) -> int:
     posts_count = 0
 
     try:
-        reddit_posts = []
+        posts = []
         for record in records:
             # Check if post already exists using reddit_id
-            exists = (
+            reddit_post_exists = (
                 session.execute(
                     select(RedditPost).where(
                         RedditPost.reddit_id == record.get("reddit_id")
@@ -164,17 +164,13 @@ def insert_reddit_posts_task(records: List[Dict[str, Any]]) -> int:
                 .first()
             )
 
-            if exists is not None:
+            if reddit_post_exists is not None:
                 print(
                     f"-> [Reddit Worker] Post with reddit_id {record.get('reddit_id')} already exists. Skipping."
                 )
                 continue
 
-            # Generate UUID for the primary key
-            post_id = str(uuid.uuid4())
-
             reddit_post = RedditPost(
-                id=post_id,
                 reddit_id=record.get("reddit_id"),
                 subreddit=record.get("subreddit"),
                 author=record.get("author"),
@@ -185,24 +181,48 @@ def insert_reddit_posts_task(records: List[Dict[str, Any]]) -> int:
                 is_text_post=record.get("is_text_post"),
                 subreddit_category=record.get("subreddit_category"),
                 upvote_ratio=record.get("upvote_ratio"),
-                article_headline=record.get("article_headline"),
-                article_author=record.get("article_author"),
-                article_publisher=record.get("article_publisher"),
-                article_content=record.get("article_content"),
-                article_headline_cleaned=record.get("article_headline_cleaned"),
-                article_content_cleaned=record.get("article_content_cleaned"),
                 published_at=record.get("published_at"),
-                article_published_at=record.get("article_published_at"),
-                source_name=record.get("source_name"),
                 reddit_post_url=record.get("reddit_post_url"),
-                article_url=record.get("article_url"),
             )
-            reddit_posts.append(reddit_post)
 
-        posts_count = len(reddit_posts)
+            posts.append(reddit_post)
+
+            if record.get("is_text_post"):
+                continue
+
+            article_exists = (
+                session.execute(
+                    select(Article).where(
+                        Article.url == record.get("article_url")
+                    )
+                )
+                .scalars()
+                .first()
+            )
+
+            if article_exists:
+                reddit_post.article = article_exists
+                continue
+
+
+            article = Article(
+                author=record.get("article_author"),
+                title=record.get("article_headline"),
+                content=record.get("article_content"),
+                title_cleaned=record.get("article_headline_cleaned"),
+                content_cleaned=record.get("article_content_cleaned"),
+                sentiment_strategy=record.get("article_category"),
+                published_at=record.get("article_published_at"),
+                source_name=record.get("article_publisher"),
+                url=record.get("article_url"),
+            )
+            reddit_post.article = article
+            posts.append(article)
+
+        posts_count = len(posts)
 
         # Bulk insert
-        session.add_all(reddit_posts)
+        session.add_all(posts)
         session.commit()
 
         print(

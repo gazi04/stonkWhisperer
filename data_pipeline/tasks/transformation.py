@@ -73,50 +73,56 @@ def transform_praw_data(data: list[dict]):
     )
     print("Renamed columns")
 
+    # Insterting into the database article_category as a list will raise and error
+    # so we turning it into a string
+    data_frame['article_category'] = data_frame['article_category'].apply(
+        lambda x: ", ".join(x) if isinstance(x, list) else x
+    )
+
     initial_rows = len(data_frame)
     data_frame = data_frame.drop_duplicates(
-        subset=["reddit_id", "article_url", "reddit_post_url"], keep="first"
+        subset=["reddit_id", "reddit_post_url"], keep="first"
     )
     print(f"Removed {initial_rows - len(data_frame)} duplicate rows.")
 
     initial_rows = len(data_frame)
-    data_frame = data_frame.dropna(
-        subset=["reddit_id", "subreddit", "published_at"], how="any"
+    data_frame = (
+        data_frame.dropna(
+            subset=[
+                "reddit_id",
+                "subreddit",
+                "published_at",
+            ],
+            how="any"
+        )
     )
     print(
-        f"Removed {initial_rows - len(data_frame)} rows without a reddit_id or a subreddit or a url or a published_at."
+        f"Removed {initial_rows - len(data_frame)} rows without a reddit_id or a subreddit or a published_at."
     )
 
-    data_frame["reddit_post_url"] = data_frame["reddit_post_url"].fillna(
-        f"https://www.reddit.com/r/{data_frame['subreddit']}"
-    )
     data_frame = data_frame.fillna(
         {
             "body_text": "No text",
             "content": "No text",
             "subreddit_category": "No category",
-            "article_url": data_frame["reddit_post_url"],
             "score": 0,
             "number_of_comments": 0,
             "upvote_ratio": 0.5,
-            "article_headline": "No headline",
-            "article_author": "No author",
-            "article_publisher": "No publisher",
-            "article_content": "No content",
+            "article_author": "Unknown Author",
+            "article_publisher": "Unknown Publisher",
+            "article_headline": "No Title",
+            "article_content": "No Content",
         }
     )
     data_frame["score"] = data_frame["score"].astype(int)
     data_frame["number_of_comments"] = data_frame["number_of_comments"].astype(int)
-    
-    data_frame["article_published_at"] = pd.to_datetime(
-        data_frame["article_published_at"],
-        errors='coerce', # Handling None values
-        utc=True
-    )
-    # Explicitly replace NaT (Not a Time) with None for SQLAlchemy/Postgres
-    # because otherwise if we pass to NaT value to the database it would cause an error
-    data_frame["article_published_at"] = data_frame["article_published_at"].replace({pd.NaT: None})
 
+    print("Applying custom filter for non-text posts with null article data...")
+    # ♻️ todo: better solution instead of removing the data
+    # add a new column to the reddit_posts table that tells if the no text post is fetched or not
+    # Removing the post which are not text posts and their article_published_at column is empty
+    data_frame = data_frame[~((data_frame['is_text_post'] == False) & (data_frame['article_published_at'].isna() | data_frame['article_published_at'].eq('')))]
+    
     data_frame["article_headline_cleaned"] = data_frame["article_headline"].apply(
         clean_text_for_nlp
     )
@@ -128,7 +134,6 @@ def transform_praw_data(data: list[dict]):
     )
 
     data_analysis(data_frame)
-
     return data_frame
 
 

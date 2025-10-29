@@ -21,6 +21,7 @@ DEFAULT_ARTICLE_DATA = {
     "article_publisher": None,
     "article_content": None,
     "article_published_at": None,
+    "article_category": None,
 }
 
 
@@ -250,16 +251,13 @@ def fetch_article_task(url: str) -> Optional[dict]:
             )
             return None
 
-        print(f"The article headline: {meta.title}")
-        print(f"Article author: {meta.author}")
-        print(f"Article sitename: {meta.sitename}")
-        print(f"Article published date: {meta.date}")
         return {
             "article_headline": meta.title,
             "article_author": meta.author,
             "article_publisher": meta.sitename,
             "article_content": article,
             "article_published_at": meta.date,
+            "article_category": meta.categories
         }
     except Exception as e:
         print(f"ERROR: An exception occurred during content extraction: {e}")

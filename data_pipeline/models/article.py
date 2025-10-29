@@ -5,8 +5,8 @@ from sqlalchemy import (
     Text,
 )
 from sqlalchemy.dialects.postgresql import UUID
-from sqlalchemy.orm import Mapped, mapped_column
-from typing import Optional
+from sqlalchemy.orm import Mapped, mapped_column, relationship
+from typing import List, Optional
 
 from core.database import Base
 
@@ -48,6 +48,7 @@ class Article(Base):
     )
     sentiment_strategy: Mapped[str] = mapped_column(
         String(100),
+        nullable=True,
         comment="The category tag used to segment the data."
     )
 
@@ -76,3 +77,5 @@ class Article(Base):
         default=lambda: datetime.now(timezone.utc),
         onupdate=lambda: datetime.now(timezone.utc)
     )
+
+    reddit_posts: Mapped[List["RedditPost"]] = relationship(back_populates="article")

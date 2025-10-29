@@ -3,12 +3,13 @@ from sqlalchemy import (
     Boolean,
     DateTime,
     Float,
+    ForeignKey,
     Integer,
     String,
     Text,
 )
 from sqlalchemy.dialects.postgresql import UUID
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 from typing import Optional
 
 from core.database import Base
@@ -21,6 +22,9 @@ class RedditPost(Base):
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True
+    )
+    article_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        ForeignKey("articles.id"), nullable=True
     )
 
     # Reddit post information
@@ -61,58 +65,12 @@ class RedditPost(Base):
         Float, comment="The percentage of total votes that are upvotes."
     )
 
-    article_headline: Mapped[str] = mapped_column(
-        String(500),
-        comment="The fetched article headline, if is_text_post is false",
-        nullable=True,
-    )
-    article_author: Mapped[str] = mapped_column(
-        String(255),
-        comment="The fetched article author, if is_text_post is false",
-        nullable=True,
-    )
-    article_publisher: Mapped[str] = mapped_column(
-        String(255),
-        comment="The fetched article publisher, if is_text_post is false",
-        nullable=True,
-    )
-    article_content: Mapped[str] = mapped_column(
-        Text,
-        comment="The fetched article content, if is_text_post is false",
-        nullable=True,
-    )
-
-    article_headline_cleaned: Mapped[str] = mapped_column(
-        String(500),
-        comment="The cleaned article headline (lowercased, noise-removed).",
-        nullable=True,
-    )
-    article_content_cleaned: Mapped[str] = mapped_column(
-        Text,
-        comment="The cleaned article content text (lowercased, noise-removed).",
-        nullable=True,
-    )
-
     # --- Source & Time Data ---
     published_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), comment="The time when the reddit post is created."
     )
-    article_published_at: Mapped[Optional[datetime]] = mapped_column(
-        DateTime(timezone=True),
-        nullable=True,
-        comment="The fetched article published date, if is_text_post is false",
-    )
-    source_name: Mapped[str] = mapped_column(
-        String(255), nullable=True, comment="The publisher's name (e.g., 'The Verge')."
-    )
     reddit_post_url: Mapped[str] = mapped_column(
         Text, index=True, comment="The reddit post URL."
-    )
-    article_url: Mapped[str] = mapped_column(
-        Text,
-        index=True,
-        nullable=True,
-        comment="The URL that the post links to. If the post is a text post this is just the reddit post URL.",
     )
 
     created_at: Mapped[datetime] = mapped_column(
@@ -122,4 +80,9 @@ class RedditPost(Base):
         DateTime(timezone=True),
         default=lambda: datetime.now(timezone.utc),
         onupdate=lambda: datetime.now(timezone.utc),
+    )
+
+    article: Mapped[Optional["Article"]] = relationship(
+        back_populates="reddit_posts", 
+        foreign_keys=[article_id]
     )
