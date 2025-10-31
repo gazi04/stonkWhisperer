@@ -5,6 +5,9 @@ class Settings(BaseSettings):
 
     news_api_key: str
 
+    alpaca_api_key: str
+    alpaca_secret_key: str
+
     database_url: str
 
     celery_broker_url: str

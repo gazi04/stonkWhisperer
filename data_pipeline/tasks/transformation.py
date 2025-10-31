@@ -1,3 +1,4 @@
+from typing import Dict, List, Tuple
 from pandas import DataFrame
 from prefect import task
 
@@ -138,9 +139,48 @@ def transform_praw_data(data: list[dict]):
 
 
 @task
-def transform_alpaca_data(data):
+def transform_alpaca_data(data) -> Tuple:
     print("Transforming Alpaca data...")
-    return data
+    data_frame = DataFrame(data)
+
+    print("Ensure data types are correct")
+    data_frame["timestamp"] = pd.to_datetime(data_frame["timestamp"])
+
+    numerical_columns = ["open", "high", "low", "close", "volume", "trade_count", "vwap"]
+    data_frame.loc[:, numerical_columns] = data_frame[numerical_columns].apply(
+        pd.to_numeric,
+        errors="coerce" # Turns invalid data into NaN which is handled below
+    )
+
+    data_frame["symbol"] = data_frame["symbol"].astype("category")
+
+    print("Sorting data frame based on timestamp and symbol")
+    data_frame = data_frame.sort_values(by=['symbol', 'timestamp'])
+
+    price_cols = ['open', 'high', 'low', 'close', 'vwap']
+    volume_cols = ['volume', 'trade_count']
+
+    print("Handling emtpy values")
+    data_frame[price_cols] = data_frame.groupby("symbol")[price_cols].ffill()
+    data_frame[volume_cols] = data_frame[volume_cols].fillna(0)
+    data_frame[price_cols] = data_frame.groupby("symbol")[price_cols].bfill()
+
+    initial_rows = len(data_frame)
+    data_frame = data_frame.dropna(subset=price_cols)
+    final_rows = len(data_frame)
+
+    if initial_rows > final_rows:
+        print(f"-> [Transform] WARNING: Dropped {initial_rows - final_rows} rows with non-fixable null prices.")
+
+    print(f"-> [Transform] Transformation complete. Returning {final_rows} clean bars.")
+
+    data_frame = data_frame.rename(columns={"symbol": "ticker"})
+    data_analysis(data_frame)
+
+    unique_symbols_list = data_frame["ticker"].unique().tolist()
+    dictionary_symbols = {symbole: symbole for symbole in unique_symbols_list}
+
+    return (data_frame.to_dict("records"), dictionary_symbols)
 
 
 # ----------------------------------------
@@ -160,8 +200,8 @@ def data_analysis(data: DataFrame):
     print(data.duplicated())
 
     print("Identify data types")
-    cat_col = [col for col in data.columns if data[col].dtype == "object"]
-    num_col = [col for col in data.columns if data[col].dtype != "object"]
+    cat_col = [col for col in data.columns if data[col].dtype == "object" or data[col].dtype == "category"]
+    num_col = [col for col in data.columns if data[col].dtype != "object" and data[col].dtype != "category"]
     print("Categorical columns:", cat_col)
     print("Numerical columns:", num_col)
 

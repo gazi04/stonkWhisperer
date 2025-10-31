@@ -1,11 +1,15 @@
+from alpaca.data.historical import StockHistoricalDataClient
+from alpaca.data.requests import StockBarsRequest
+from alpaca.data.timeframe import TimeFrame
 from celery import group
+from datetime import datetime
 from newsapi import NewsApiClient
 from newsapi.newsapi_exception import NewsAPIException
 from praw.exceptions import APIException, ClientException
 from prefect import task
 from requests import RequestException
 from trafilatura import fetch_url, extract, extract_metadata
-from typing import Optional
+from typing import Dict, List, Optional
 
 from celery_app import app
 from core.config_loader import settings
@@ -171,17 +175,23 @@ def extract_praw_data(subreddit: str, flairs: list[str]) -> list[dict]:
 
 
 @task(name="Extract Alpaca Data")
-def extract_alpaca_data(symbol: str) -> list[dict]:
-    """
-    Connects to Alpaca-Py SDK to fetch market data for a stock symbol.
-    """
-    print(f"-> Starting Alpaca-Py extraction for symbol: {symbol}")
+def extract_alpaca_data(symbol_list: List[str] = ["AAPL", "TSLA", "NVDA"]) -> List[Dict]:
+    print(f"-> Starting Alpaca-Py extraction for symbol: AAPL")
 
-    # Placeholder for Alpaca-Py SDK interaction
-    # Example: trading_client = TradingClient(ALPACA_KEY_ID, ALPACA_SECRET_KEY)
-    # data = trading_client.get_latest_bar(symbol)
+    alpaca_client = StockHistoricalDataClient(settings.alpaca_api_key, settings.alpaca_secret_key) 
+    request = StockBarsRequest(
+        symbol_or_symbols=symbol_list,
+        timeframe=TimeFrame.Minute,
+        start=datetime(2025, 10, 1),
+        end=datetime(2025, 10, 2)
+    )
+    data = alpaca_client.get_stock_bars(request)
+    all_bars = []
 
-    return [{"source": "Alpaca", "price": 150.50, "symbol": symbol}]
+    for bar in data.dict().values():
+        all_bars.extend(bar)
+
+    return all_bars
 
 
 # ------------------------------
