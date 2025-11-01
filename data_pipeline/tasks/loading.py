@@ -5,9 +5,12 @@ from typing import Any, Dict, List
 from celery_app import app
 from core.database import get_db
 from models.article import Article
+from models.company import Company
 from models.reddit_post import RedditPost
 
 import pandas as pd
+
+from models.stock_bar import StockBar
 
 
 @task(name="Dispatch DB Load Task")
@@ -74,8 +77,56 @@ def load_praw_data(data: pd.DataFrame):
 
 
 @task
-def load_alpaca_data(data):
+def load_alpaca_data(data: Dict, tickers: List):
     print(f"Loading {len(data)} Alpaca records...")
+
+    session = next(get_db())
+
+    ticker_cache: Dict[str, Any] = {}
+    stmt = select(Company.id, Company.ticker).where(
+        Company.ticker.in_(tickers)
+    )
+    for company_id, ticker in session.execute(stmt):
+        ticker_cache[ticker] = company_id
+    
+    found_count = len(ticker_cache)
+    if found_count < len(tickers):
+        missing_tickers = [t for t in tickers if t not in ticker_cache]
+        print(f"WARNING: Could not find Company records for: {', '.join(missing_tickers)}. Associated bars will be skipped.")
+        
+    stocks = []
+    for record in data:
+        ticker=record.get("ticker")
+
+        company_id = ticker_cache.get(ticker)
+
+        if not company_id:
+            continue
+
+        stocks.append(StockBar(
+            company_id=company_id,
+            timestamp=record.get("timestamp"),
+            open_price=record.get("open"),
+            high_price=record.get("high"),
+            low_price=record.get("low"),
+            close_price=record.get("close"),
+            volume=record.get("volume"),
+            trade_count=record.get("trade_count"),
+            vwap=record.get('vwap')
+        ))
+
+    try:
+        session.add_all(stocks)
+        session.commit()
+
+        stock_length = len(stocks)
+        print(f"Successfully loaded {stock_length} stocks to database.")
+        return stock_length
+    except Exception as e:
+        session.rollback()
+        print(f"Error loading stock bar data. Transaction rolled back: {e}")
+    finally:
+        session.close()
     return True
 
 

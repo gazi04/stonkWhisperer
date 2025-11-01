@@ -1,4 +1,4 @@
-from typing import Dict, List, Tuple
+from typing import Tuple
 from pandas import DataFrame
 from prefect import task
 
@@ -178,9 +178,8 @@ def transform_alpaca_data(data) -> Tuple:
     data_analysis(data_frame)
 
     unique_symbols_list = data_frame["ticker"].unique().tolist()
-    dictionary_symbols = {symbole: symbole for symbole in unique_symbols_list}
 
-    return (data_frame.to_dict("records"), dictionary_symbols)
+    return (data_frame.to_dict("records"), unique_symbols_list)
 
 
 # ----------------------------------------
