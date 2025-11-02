@@ -17,19 +17,6 @@ from core.config_loader import settings
 import praw
 
 # ------------------------------
-# CONSTANTS
-# ------------------------------
-DEFAULT_ARTICLE_DATA = {
-    "article_headline": None,
-    "article_author": None,
-    "article_publisher": None,
-    "article_content": None,
-    "article_published_at": None,
-    "article_category": None,
-}
-
-
-# ------------------------------
 # PREFECT TASKS
 # ------------------------------
 @task(name="Extract NewsAPI Data")

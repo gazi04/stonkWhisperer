@@ -10,27 +10,17 @@ def news_etl_flow():
     Dedicated ETL pipeline for NewsAPI.
     """
 
-    categories: dict[str, str] = {
-        # CORE FINANCIAL NEWS (Business News, Hard News - Economics)
-        # High-signal for direct financial impact.
-        "core_financial": "stocks OR earnings OR investment OR market trend OR merger OR acquisition OR financial report",
-        # MACRO / POLITICAL RISK (Hard News - Politics, Editorial/Opinion)
-        # Captures broad systemic risk and policy uncertainty.
-        "macro_politics": "politics OR election OR central bank OR Fed OR policy OR legislature OR government spending OR opinion column",
-        # BEHAVIORAL MOOD / SPORTS & ENTERTAINMENT (Sports, Entertainment)
-        # Measures general investor optimism/pessimism from non-financial events.
-        "behavioral_mood": "World Cup OR NBA Finals OR Olympics OR celebrity OR movie review OR music industry OR award ceremony OR athlete",
-        # INNOVATION & DISRUPTORS (Science/Technology, Investigative)
-        # Tracks long-term technological drivers and related controversies.
-        "innovation_tech": "AI OR tech innovation OR medical breakthrough OR space exploration OR corporate scandal OR data breach OR investigation",
-        # GENERAL SENTIMENT (Soft News, Feature News, Crime/Legal)
-        # Captures consumer interest, social trends, and general societal distress.
-        "general_sentiment": "lifestyle OR travel OR health trend OR social issue OR climate change OR crime OR court verdict"
-    }
-    
-    # 1. E-xtraction
-    print(f"*** Running News ETL for query: {categories["core_financial"]} ***")
-    raw_data = extract_news_data(query=categories["core_financial"])
+    # raw_data = []
+    # current_day = datetime(2025, 10, 2)
+    # end_date = datetime.now()
+    #
+    # while current_day.date() < end_date.date():
+    #     day_start = current_day
+    #     day_end = day_start + timedelta(days=1)
+    #     raw_data.extend(extract_news_data(query, day_start, day_end))
+    #     current_day = day_end
+
+    raw_data = extract_news_data(query, datetime(2025, 10, 2), datetime(2025, 10, 3))
 
     # 2. T-ransformation 
     transformed_data = transform_news_data(raw_data)
