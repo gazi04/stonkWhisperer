@@ -9,65 +9,63 @@ from praw.exceptions import APIException, ClientException
 from prefect import task
 from requests import RequestException
 from trafilatura import fetch_url, extract, extract_metadata
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 from celery_app import app
 from core.config_loader import settings
 
+import asyncio
+import httpx
 import praw
+import numpy as np
 
 # ------------------------------
 # PREFECT TASKS
 # ------------------------------
 @task(name="Extract NewsAPI Data")
-def extract_news_data(query: str) -> list[dict]:
-    """
-    Connects to the NewsAPI SDK to fetch articles based on a query.
-    Note: For simplicity, we use requests here, but in production, you'd use the SDK.
-    """
+def extract_news_data(query: str, start_date: datetime, end_date: datetime) -> list[dict]:
     print(f"-> Starting NewsAPI extraction for query: {query}")
 
     try:
         api = NewsApiClient(api_key=settings.news_api_key)
         data = api.get_everything(
-            q=query, language="en", from_param="2025-10-20", to="2025-10-21"
+            q=query, language="en", from_param=from_date_str, to=to_date_str
         )
-        articles = data["articles"]
+    except NewsAPIException as e:
+        print(f"Error occured in the NewsAPI client: {e}")
+        print(f"Retrying the task.")
+        raise e
 
-        if not articles:
-            print("No articles found.")
-            return []
+    articles: List[Dict[str, Any]] = data["articles"]
+    article_chunks = np.array_split(articles, 4)
 
-        print(f"-> Starting concurrent content fetch for {len(articles)} articles.")
+    if not articles:
+        print("No articles found.")
+        return []
 
-        print(
-            f"-> Dispatching {len(articles)} article content fetching tasks to Celery."
-        )
 
-        task_signatures = [get_full_article.s(article["url"]) for article in articles]
+    print(
+        f"-> Dispatching {len(articles)} article content fetching tasks to Celery."
+    )
+    task_signatures = [
+        fetch_and_extract_content.s(chunk.tolist()) 
+        for chunk in article_chunks
+    ]
 
-        task_group = group(task_signatures)
-        result = task_group.apply_async()
+    task_group = group(task_signatures)
+    result = task_group.apply_async()
 
-        print(
-            "-> Waiting for Celery workers to return full content (Max 300s timeout)..."
-        )
-        try:
-            full_contents = result.get(timeout=300)
-        except Exception as e:
-            print(f"Error retrieving Celery results (Timeout or Task Failure): {e}")
-            # If the group fails or times out, return None for all contents to continue flow
-            full_contents = [None] * len(articles)
+    print("-> Waiting for Celery workers to return 4 batches of full content...")
 
-        for article, content in zip(articles, full_contents):
-            article["content"] = content
-
-        print(f"<- Finished fetching full content for {len(articles)} articles.")
-
-        return articles
-    except NewsAPIException as ex:
-        raise ex
-
+    try:
+        batch_results = result.get(timeout=60)
+        final_articles = [article for batch in batch_results for article in batch]
+        print(f"<- Finished extracting the articles.")
+        return final_articles
+    except Exception as e:
+        print(f"Error retrieving Celery results (Timeout or Task Failure): {e}")
+        print(f"Retrying the task.")
+        raise e
 
 @task(name="Extract PRAW Data")
 def extract_praw_data(subreddit: str, flairs: list[str]) -> list[dict]:
@@ -184,42 +182,27 @@ def extract_alpaca_data(symbol_list: List[str] = ["AAPL", "TSLA", "NVDA"]) -> Li
 # ------------------------------
 # CELERY TASKS
 # ------------------------------
-@app.task(name="fetch_article_content")
-def get_full_article(url: str) -> Optional[str]:
-    """
-    Celery task to fetch and extract content from a single URL.
-    This will run on the dedicated celery-worker container.
-    """
-    downloaded = None
-    try:
-        downloaded = fetch_url(url)
-    except RequestException as e:
-        print(f"ERROR: Failed to download URL '{url}'. Network/Connection Issue: {e}")
-        return None
-    except Exception as e:
-        print(f"ERROR: An unexpected error occurred during fetch_url: {e}")
-        return None
+@app.task(
+    name="fetch_and_extract_content",
+    bind=True,
+    autoretry_for=(RequestException,),
+    retry_kwargs={'max_retries': 3, 'countdown': 30},
+    soft_time_limit=300,
+    time_limit=330,
+)
+def fetch_and_extract_content(self, articles_batch: List[Dict])  -> List[Dict]:
+    print(f"  -> [Worker] Starting async batch fetch for {len(articles_batch)} articles.")
+    
+    async def main():
+        async with httpx.AsyncClient() as client:
+            tasks = [fetch_one_url(client, article) for article in articles_batch]
+            processed_articles = await asyncio.gather(*tasks)
+            return processed_articles
 
-    if downloaded is None:
-        print(f"WARNING: No content downloaded for URL '{url}'.")
-        return None
+    results = asyncio.run(main())
+    print(f"  -> [Worker] Finished async batch for {len(results)} articles.")
+    return results
 
-    try:
-        extracted_content = extract(downloaded)
-
-        if extracted_content is None:
-            print(
-                f"WARNING: Trafilatura failed to extract content from the downloaded data for '{url}'."
-            )
-
-        return extracted_content
-    except Exception as e:
-        print(f"ERROR: An exception occurred during content extraction: {e}")
-        return None
-
-
-@app.task(name="fetch_article")
-def fetch_article_task(url: str) -> Optional[dict]:
     downloaded = None
 
     try:
@@ -267,3 +250,23 @@ def fetch_article_task(url: str) -> Optional[dict]:
 def prepare_reddit_query(flairs: list[str]) -> str:
     flair_queries = [f'flair:"{flair}"' for flair in flairs]
     return " OR ".join(flair_queries)
+
+async def fetch_one_url(client: httpx.AsyncClient, article: Dict[str, Any]) -> Dict[str, Any]:
+    url = article.get("url")
+    if not url:
+        article["content"] = None
+        return article
+    
+    try:
+        response = await client.get(url, timeout=15.0, follow_redirects=True)
+        content = extract(response.text)
+        article["content"] = content
+    except Exception as e:
+        print(f"  -> [Worker] Async fetch failed for {url}: {e}")
+        article["content"] = None
+    
+    return article
+
+    url = article.get("url")
+    if not url:
+        article["content"] = None
