@@ -13,6 +13,7 @@ from typing import Any, Dict, List, Optional
 
 from celery_app import app
 from core.config_loader import settings
+from core.constants import DEFAULT_ARTICLE_DATA
 
 import asyncio
 import httpx
@@ -102,7 +103,8 @@ def extract_praw_data(subreddit: str, flairs: list[str]) -> list[dict]:
         print(f"PRAW extraction failed for r/{subreddit}. Reason: {e}")
         raise RuntimeError(f"PRAW Extraction Failed(Unhandled Error): {e}")
 
-    task_signatures = []
+    print(f"-> Dispatching {len(post_list)} article fetching tasks to Celery.")
+    url_list = []
     try:
         for post in data:
             post_list.append(
@@ -123,40 +125,36 @@ def extract_praw_data(subreddit: str, flairs: list[str]) -> list[dict]:
                 }
             )
 
-            if not post.is_self:
-                task_signatures.append(fetch_article_task.s(post.url))
-            else:
-                task_signatures.append(fetch_article_task.s(None))
+            url_list.append(post.url if not post.is_self else None)
 
     except Exception as e:
         print(f"PRAW failed during mapping the fetch data inot a list. Reason: {e}")
         raise RuntimeError(f"PRAW Mapping Extraction Failed: {e}")
 
-    print(
-        f"-> Dispatching {len(task_signatures)} article content fetching tasks to Celery."
-    )
+    url_chunks = np.array_split(url_list, 4)
+
+    task_signatures = [
+        fetch_article_task.s(chunk.tolist()) for chunk in url_chunks
+    ]
 
     task_group = group(task_signatures)
     result = task_group.apply_async()
 
-    print(
-        "-> Waiting for Celery workers to return full article data (Max 300s timeout)..."
-    )
-    full_article_data = []
+    print("-> Waiting for Celery workers to return 4 batches of full content...")
+
     try:
-        full_article_data = result.get(timeout=300)
+        batch_results = result.get(timeout=60)
+        final_articles = [article for batch in batch_results for article in batch]
+
+        for reddit_post, article in zip(post_list, final_articles):
+            reddit_post.update(article)
+
+        print(f"<- Finished extracting the reddit posts with their linked article.")
+        return post_list
     except Exception as e:
         print(f"Error retrieving Celery results (Timeout or Task Failure): {e}")
-        full_article_data = [DEFAULT_ARTICLE_DATA] * len(post_list)
-
-    for post, article_data in zip(post_list, full_article_data):
-        # If fetch failed or timed out, add default empty structure
-        post.update(article_data) if isinstance(article_data, dict) else post.update(
-            DEFAULT_ARTICLE_DATA
-        )
-
-    print(f"<- Finished fetching content for {len(post_list)} posts/articles.")
-    return post_list
+        print(f"Retrying the task.")
+        raise e
 
 
 @task(name="Extract Alpaca Data")
@@ -203,45 +201,27 @@ def fetch_and_extract_content(self, articles_batch: List[Dict])  -> List[Dict]:
     print(f"  -> [Worker] Finished async batch for {len(results)} articles.")
     return results
 
-    downloaded = None
+@app.task(
+    name="fetch_article",
+    bind=True,
+    autoretry_for=(RequestException,),
+    retry_kwargs={'max_retries': 3, 'countdown': 30},
+    soft_time_limit=300,
+    time_limit=330,
+)
+def fetch_article_task(self, urls: List[Optional[str]]) -> List[Dict[str, Any]]:
+    print(f"  -> [Worker] Starting async batch fetch for {len(urls)} articles.")
 
-    try:
-        downloaded = fetch_url(url)
-    except RequestException as e:
-        print(f"ERROR: Failed to download URL '{url}'. Network/Connection Issue: {e}")
-        return None
-    except Exception as e:
-        print(f"ERROR: An unexpected error occurred during fetch_url: {e}")
-        return None
+    async def main():
+        async with httpx.AsyncClient() as client:
+            tasks = [fetch_and_parse_url(client, url) for url in urls]
+            processed_articles = await asyncio.gather(*tasks)
+            return processed_articles
 
-    if downloaded is None:
-        print(f"WARNING: No content downloaded for URL '{url}'.")
-        return None
+    results = asyncio.run(main())
+    print(f"  -> [Worker] Finished async batch for {len(results)} articles.")
+    return results
 
-    try:
-        article = extract(downloaded)
-        meta = extract_metadata(downloaded)
-
-        if article is None or meta is None:
-            failed_item = (
-                "content" if article is None else "metadata" if meta is None else "data"
-            )
-            print(
-                f"WARNING: Trafilatura failed to extract {failed_item} from the downloaded data for '{url}'."
-            )
-            return None
-
-        return {
-            "article_headline": meta.title,
-            "article_author": meta.author,
-            "article_publisher": meta.sitename,
-            "article_content": article,
-            "article_published_at": meta.date,
-            "article_category": meta.categories
-        }
-    except Exception as e:
-        print(f"ERROR: An exception occurred during content extraction: {e}")
-        return None
 
 
 # ------------------------------
@@ -267,6 +247,33 @@ async def fetch_one_url(client: httpx.AsyncClient, article: Dict[str, Any]) -> D
     
     return article
 
-    url = article.get("url")
+async def fetch_and_parse_url(client: httpx.AsyncClient, url: str) -> Dict[str, Any]:
     if not url:
-        article["content"] = None
+        return DEFAULT_ARTICLE_DATA
+
+    try:
+        response = await client.get(url, timeout=15.0, follow_redirects=True)
+        response.raise_for_status() # Raise HTTP errors
+
+        downloaded = response.text
+
+        article = extract(downloaded)
+        meta = extract_metadata(downloaded)
+
+        if not article or not meta:
+            return DEFAULT_ARTICLE_DATA
+
+        return {
+            "article_headline": meta.title,
+            "article_author": meta.author,
+            "article_publisher": meta.sitename,
+            "article_content": article,
+            "article_published_at": meta.date,
+            "article_category": meta.categories,
+        }
+        
+    except Exception as e:
+        print(f"  -> [Worker] Async fetch failed for {url}: {e}")
+        return DEFAULT_ARTICLE_DATA
+
+
