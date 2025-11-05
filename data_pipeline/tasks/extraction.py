@@ -8,12 +8,12 @@ from newsapi.newsapi_exception import NewsAPIException
 from praw.exceptions import APIException, ClientException
 from prefect import task
 from requests import RequestException
-from trafilatura import fetch_url, extract, extract_metadata
+from trafilatura import extract, extract_metadata
 from typing import Any, Dict, List, Optional
 
 from celery_app import app
 from core.config_loader import settings
-from core.constants import DEFAULT_ARTICLE_DATA
+from core.constants import DATA_FETCH_LIMIT_PER_FLOW, DEFAULT_ARTICLE_DATA
 
 import asyncio
 import httpx
@@ -89,10 +89,10 @@ def extract_praw_data(subreddit: str, flairs: list[str]) -> list[dict]:
     try:
         if flairs:
             data = subreddit_obj.search(
-                query=prepare_reddit_query(flairs), sort="new", limit=100
+                query=prepare_reddit_query(flairs), sort="new", limit=DATA_FETCH_LIMIT_PER_FLOW
             )
         else:
-            data = subreddit_obj.new(limit=100)
+            data = subreddit_obj.new(limit=DATA_FETCH_LIMIT_PER_FLOW)
     except APIException as api_e:
         print(f"PRAW API call failed during fetch. Reason: {api_e}")
         raise RuntimeError(f"PRAW Extraction Failed(API Error): {api_e}")
@@ -158,23 +158,29 @@ def extract_praw_data(subreddit: str, flairs: list[str]) -> list[dict]:
 
 
 @task(name="Extract Alpaca Data")
-def extract_alpaca_data(symbol_list: List[str] = ["AAPL", "TSLA", "NVDA"]) -> List[Dict]:
-    print(f"-> Starting Alpaca-Py extraction for symbol: AAPL")
+def extract_alpaca_data(symbol_list: List[str]) -> List[Dict]:
+    total_symbols = len(symbol_list)
+    print(f"-> Starting parallel Alpaca-Py extraction for {total_symbols} symbols.")
 
-    alpaca_client = StockHistoricalDataClient(settings.alpaca_api_key, settings.alpaca_secret_key) 
-    request = StockBarsRequest(
-        symbol_or_symbols=symbol_list,
-        timeframe=TimeFrame.Minute,
-        start=datetime(2025, 10, 1),
-        end=datetime(2025, 10, 2)
-    )
-    data = alpaca_client.get_stock_bars(request)
-    all_bars = []
+    symbol_chunks = np.array_split(symbol_list, 4)
+    
+    task_signatures = [
+        fetch_stock_bars.s(chunk.tolist()) for chunk in symbol_chunks if chunk.size > 0
+    ]
+    
+    task_group = group(task_signatures)
+    result = task_group.apply_async()
+    
+    print(f"-> Waiting for {len(task_signatures)} Celery workers to return batches...")
 
-    for bar in data.dict().values():
-        all_bars.extend(bar)
-
-    return all_bars
+    try:
+        batch_results = result.get(timeout=300) 
+        stock_data = [stock_bar for batch in batch_results for stock_bar in batch]
+        print(f"<- Finished extracting {len(stock_data)} stock bars.")
+        return stock_data
+    except Exception as e:
+        print(f"Error retrieving Celery results (Timeout or Task Failure): {e}")
+        return []
 
 
 # ------------------------------
@@ -222,6 +228,37 @@ def fetch_article_task(self, urls: List[Optional[str]]) -> List[Dict[str, Any]]:
     print(f"  -> [Worker] Finished async batch for {len(results)} articles.")
     return results
 
+@app.task(
+    name="fetch_stock_bars",
+    bind=True,
+    autoretry_for=(RequestException,),
+    retry_kwargs={'max_retries': 3, 'countdown': 30},
+    soft_time_limit=300,
+    time_limit=330,
+)
+def fetch_stock_bars(symbols: List[str]):
+    print(f"  -> [Worker] Starting fetching stock bars for {len(symbols)} symbols.")
+    
+    client = StockHistoricalDataClient(settings.alpaca_api_key, settings.alpaca_secret_key) 
+    
+    request = StockBarsRequest(
+        symbol_or_symbols=symbols,
+        timeframe=TimeFrame.Minute,
+        start=datetime(2025, 10, 4), 
+        end=datetime(2025, 10, 5)
+    )
+
+    data = client.get_stock_bars(request)
+    print(f"  -> [Worker] Finished fetching raw data.")
+    
+    all_bars = []
+
+    data_dict = data.dict()
+    for bar_list in data_dict.values():
+        all_bars.extend(bar_list)
+
+    print(f"  -> [Worker] Parsed {len(all_bars)} bars.")
+    return all_bars
 
 
 # ------------------------------

@@ -23,3 +23,4 @@ DEFAULT_ARTICLE_DATA = {
     "article_category": None,
 }
 
+DATA_FETCH_LIMIT_PER_FLOW = 100
