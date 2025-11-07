@@ -47,7 +47,7 @@ class Article(Base):
         comment="The cleaned full article text (lowercased, noise-removed)."
     )
     sentiment_strategy: Mapped[str] = mapped_column(
-        String(100),
+        String(300),
         nullable=True,
         comment="The category tag used to segment the data."
     )
