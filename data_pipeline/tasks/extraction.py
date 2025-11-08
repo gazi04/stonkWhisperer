@@ -1,3 +1,5 @@
+from alpaca.common.exceptions import APIError
+from alpaca.data import BarSet, RawData
 from alpaca.data.historical import StockHistoricalDataClient
 from alpaca.data.requests import StockBarsRequest
 from alpaca.data.timeframe import TimeFrame
@@ -9,7 +11,7 @@ from praw.exceptions import APIException, ClientException
 from prefect import task
 from requests import RequestException
 from trafilatura import extract, extract_metadata
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Iterator, List, Optional
 
 from celery_app import app
 from core.config_loader import settings
@@ -24,7 +26,7 @@ import numpy as np
 # PREFECT TASKS
 # ------------------------------
 @task(name="Extract NewsAPI Data")
-def extract_news_data(query: str, start_date: datetime, end_date: datetime) -> list[dict]:
+def extract_news_data(query: str, start_date: datetime, end_date: datetime) -> List[Dict]:
     print(f"-> Starting NewsAPI extraction for query: {query}")
 
     try:
@@ -34,8 +36,23 @@ def extract_news_data(query: str, start_date: datetime, end_date: datetime) -> l
         )
     except NewsAPIException as e:
         print(f"Error occured in the NewsAPI client: {e}")
-        print(f"Retrying the task.")
+        print("Retrying the task.")
         raise e
+
+    if not data or not isinstance(data, dict):
+        print("The NewsAPI response is invalid.")
+        print(f"This is the response:\n{data}")
+        return []
+
+    if data.get("status") == "error":
+        print(f"NewsAPI returned an error {data.get('code')}.")
+        print(f"The error message is:\n'{data.get('message')}'.")
+        return []
+
+    if data.get("totalResults") == 0:
+        print("Warning API call succeeded but returned 0 articles.")
+        return []
+
 
     articles: List[Dict[str, Any]] = data["articles"]
     article_chunks = np.array_split(articles, 4)
@@ -73,6 +90,7 @@ def extract_praw_data(subreddit: str, flairs: list[str]) -> list[dict]:
     """
     Connects to Reddit via PRAW to fetch posts from a specified subreddit.
     """
+def extract_praw_data(subreddit: str, flairs: list[str]) -> List[Dict]:
     print(f"-> Starting PRAW extraction from subreddit: {subreddit}")
 
     reddit = praw.Reddit(
@@ -103,7 +121,11 @@ def extract_praw_data(subreddit: str, flairs: list[str]) -> list[dict]:
         print(f"PRAW extraction failed for r/{subreddit}. Reason: {e}")
         raise RuntimeError(f"PRAW Extraction Failed(Unhandled Error): {e}")
 
-    print(f"-> Dispatching {len(post_list)} article fetching tasks to Celery.")
+    if not data or not isinstance(data, Iterator):
+        print("The PRAW response is invalid.")
+        print(f"This is the response:\n'{data}'")
+        return []
+
     url_list = []
     try:
         for post in data:
@@ -137,6 +159,7 @@ def extract_praw_data(subreddit: str, flairs: list[str]) -> list[dict]:
         fetch_article_task.s(chunk.tolist()) for chunk in url_chunks
     ]
 
+    print(f"-> Dispatching {len(post_list)} article fetching tasks to Celery.")
     task_group = group(task_signatures)
     result = task_group.apply_async()
 
@@ -236,7 +259,7 @@ def fetch_article_task(self, urls: List[Optional[str]]) -> List[Dict[str, Any]]:
     soft_time_limit=300,
     time_limit=330,
 )
-def fetch_stock_bars(symbols: List[str]):
+def fetch_stock_bars(self, symbols: List[str]) -> List[Dict]:
     print(f"  -> [Worker] Starting fetching stock bars for {len(symbols)} symbols.")
     
     client = StockHistoricalDataClient(settings.alpaca_api_key, settings.alpaca_secret_key) 
@@ -248,17 +271,36 @@ def fetch_stock_bars(symbols: List[str]):
         end=datetime(2025, 10, 5)
     )
 
-    data = client.get_stock_bars(request)
-    print(f"  -> [Worker] Finished fetching raw data.")
-    
-    all_bars = []
+    try:
+        data = client.get_stock_bars(request)
+    except APIError as e:
+        print(f"  -> [Worker] Alpaca API error occurred, message error is:\n{e}")
+        raise self.retry(exc=e)
+    except Exception as e:
+        print(f"  -> [Worker] An unhandled error occurred:\n{e}")
+        return []
 
-    data_dict = data.dict()
-    for bar_list in data_dict.values():
-        all_bars.extend(bar_list)
+    if not data or (isinstance(data, BarSet) ^ isinstance(data, RawData)):
+        pass
+
+
+    print(f"  -> [Worker] Finished fetching raw data.")
+
+    if isinstance(data, BarSet):
+        data_dict = data.dict()
+    else: data_dict = data
+
+    # Flattens the alpaca respone to a list of dictionaries, where each dictionary is stock bar data
+    all_bars = []
+    try:
+        for bar_list in data_dict.values():
+            all_bars.extend(bar_list)
+    except Exception as e:
+        print(f"  -> [Worker] Unhandled exception flattening the alpaca response to a list of dictionaries.\nThis is the error message: {e}")
 
     print(f"  -> [Worker] Parsed {len(all_bars)} bars.")
     return all_bars
+    
 
 
 # ------------------------------
@@ -269,6 +311,9 @@ def prepare_reddit_query(flairs: list[str]) -> str:
     return " OR ".join(flair_queries)
 
 async def fetch_one_url(client: httpx.AsyncClient, article: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Helper method used to exctract the full article content from a news URL source.
+    """
     url = article.get("url")
     if not url:
         article["content"] = None
@@ -285,6 +330,9 @@ async def fetch_one_url(client: httpx.AsyncClient, article: Dict[str, Any]) -> D
     return article
 
 async def fetch_and_parse_url(client: httpx.AsyncClient, url: str) -> Dict[str, Any]:
+    """
+    Helper method used  to exctract full article and metadata from a news URL source.
+    """
     if not url:
         return DEFAULT_ARTICLE_DATA
 
