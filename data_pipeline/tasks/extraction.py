@@ -86,7 +86,6 @@ def extract_news_data(query: str, start_date: datetime, end_date: datetime) -> L
         raise e
 
 @task(name="Extract PRAW Data")
-def extract_praw_data(subreddit: str, flairs: list[str]) -> list[dict]:
     """
     Connects to Reddit via PRAW to fetch posts from a specified subreddit.
     """

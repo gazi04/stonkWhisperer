@@ -1,4 +1,4 @@
-from typing import Tuple
+from typing import Any, Dict, List, Tuple, Union
 from pandas import DataFrame
 from prefect import task
 
@@ -10,8 +10,13 @@ import re
 # PREFECT TASKS
 # ----------------------------------------
 @task
-def transform_news_data(data: dict):
+def transform_news_data(data: List[Dict[str, Any]]) -> Union[DataFrame, None]:
     print("Transforming News data...")
+
+    if len(data) == 0:
+        print("There are 0 news records, the transformation taks will be skipped.")
+        return None
+
     data_frame = DataFrame.from_dict(data)
 
     data_frame["source"] = data_frame["source"].str.get("name")
@@ -32,7 +37,7 @@ def transform_news_data(data: dict):
             columns=[
                 col
                 for col in ["urlToImage", "description"]
-                if col in DataFrame.from_dict(data).columns
+                if col in data_frame.columns # Handles KeyError exceptions
             ]
         )
     )
@@ -48,20 +53,34 @@ def transform_news_data(data: dict):
 
     print("Transformation is completed.")
 
+    print("Ensuring data types")
+    data_frame["published_at"] = pd.to_datetime(data_frame["published_at"])
+
+    string_columns = [
+        "source_name",
+        "author",
+        "title",
+        "url",
+        "content",
+        "title_cleaned",
+        "content_cleaned",
+    ]
+    data_frame[string_columns] = data_frame[string_columns].astype(str)
+
     data_analysis(data_frame)
 
     return data_frame
 
 
 @task
-def transform_praw_data(data: list[dict]):
+def transform_praw_data(data: List[Dict]) -> Union[DataFrame, None]:
     print("Transforming PRAW data...")
-    data_frame = DataFrame(data)
 
-    data_frame["published_at"] = pd.to_datetime(
-        data_frame["published_at"], unit="s", utc=True
-    )
-    print("Standardized 'published_at' from Unix timestamp to UTC datetime.")
+    if len(data) == 0:
+        print("There are 0 subreddit post records, the transformation taks will be skipped.")
+        return None
+
+    data_frame = DataFrame(data)
 
     data_frame = data_frame.rename(
         columns={
@@ -115,12 +134,11 @@ def transform_praw_data(data: list[dict]):
             "article_content": "No Content",
         }
     )
-    data_frame["score"] = data_frame["score"].astype(int)
-    data_frame["number_of_comments"] = data_frame["number_of_comments"].astype(int)
 
     print("Applying custom filter for non-text posts with null article data...")
     # ♻️ todo: better solution instead of removing the data
     # add a new column to the reddit_posts table that tells if the no text post is fetched or not
+
     # Removing the post which are not text posts and their article_published_at column is empty
     data_frame = data_frame[~((data_frame['is_text_post'] == False) & (data_frame['article_published_at'].isna() | data_frame['article_published_at'].eq('')))]
     
@@ -134,12 +152,23 @@ def transform_praw_data(data: list[dict]):
         "Created 'article_headline_cleaned' and 'article_content_cleaned' for prediction model."
     )
 
+    print("Ensuring data types")
+    data_frame["published_at"] = pd.to_datetime(
+        data_frame["published_at"], unit="s", utc=True
+    )
+    data_frame["article_published_at"] = pd.to_datetime(data_frame["article_published_at"])
+    int_columns = ["score", "number_of_comments"]
+    str_columns = ["reddit_id", "subreddit", "author", "title", "body_text", "article_url", "subreddit_category", "reddit_post_url", "article_headline", "article_author", "article_publisher", "article_content", "article_category", "article_headline_cleaned", "article_content_cleaned"]
+
+    data_frame[int_columns] = data_frame[int_columns].astype(int)
+    data_frame[str_columns] = data_frame[str_columns].astype(str)
+
     data_analysis(data_frame)
     return data_frame
 
 
 @task
-def transform_alpaca_data(data) -> Tuple:
+def transform_alpaca_data(data: List[Dict]) -> Tuple:
     print("Transforming Alpaca data...")
     data_frame = DataFrame(data)
 
