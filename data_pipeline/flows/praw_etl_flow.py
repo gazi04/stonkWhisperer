@@ -1,18 +1,18 @@
+from typing import List
 from prefect import flow
 
-from core.constants import SUBREDDITS
 from tasks.extraction import extract_praw_data
 from tasks.transformation import transform_praw_data
 from tasks.loading import load_praw_data
 
 @flow(name="PRAW ETL Pipeline", log_prints=True)
-def praw_etl_flow(subreddit: str):
+def praw_etl_flow(subreddit_name: str, subreddit_flair: List):
     """
     Dedicated ETL pipeline for PRAW (Reddit).
     """
-    print(f"*** Running PRAW ETL for subreddit: {SUBREDDITS[0]} ***")
+    print(f"*** Running PRAW ETL for subreddit: {subreddit_name} ***")
     # 1. E-xtraction
-    raw_data = extract_praw_data(subreddit=SUBREDDITS[0]["name"], flairs=SUBREDDITS[0]["flairs"])
+    raw_data = extract_praw_data(subreddit=subreddit_name, flairs=subreddit_flair)
     
     # 2. T-ransformation (Placeholder)
     transformed_data = transform_praw_data(raw_data)
