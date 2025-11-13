@@ -53,7 +53,7 @@ def transform_news_data(data: List[Dict[str, Any]]) -> Union[DataFrame, None]:
 
     print("Transformation is completed.")
 
-    print("Ensuring data types")
+    print("Ensure data types are correct")
     data_frame["published_at"] = pd.to_datetime(data_frame["published_at"])
 
     string_columns = [
@@ -152,7 +152,7 @@ def transform_praw_data(data: List[Dict]) -> Union[DataFrame, None]:
         "Created 'article_headline_cleaned' and 'article_content_cleaned' for prediction model."
     )
 
-    print("Ensuring data types")
+    print("Ensure data types are correct")
     data_frame["published_at"] = pd.to_datetime(
         data_frame["published_at"], unit="s", utc=True
     )
@@ -170,6 +170,11 @@ def transform_praw_data(data: List[Dict]) -> Union[DataFrame, None]:
 @task
 def transform_alpaca_data(data: List[Dict]) -> Tuple:
     print("Transforming Alpaca data...")
+
+    if len(data) == 0:
+        print("There are 0 stock records, the transformation taks will be skipped.")
+        return ()
+
     data_frame = DataFrame(data)
 
     print("Ensure data types are correct")
@@ -208,7 +213,7 @@ def transform_alpaca_data(data: List[Dict]) -> Tuple:
 
     unique_symbols_list = data_frame["ticker"].unique().tolist()
 
-    return (data_frame.to_dict("records"), unique_symbols_list)
+    return (data_frame, unique_symbols_list)
 
 
 # ----------------------------------------

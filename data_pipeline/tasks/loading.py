@@ -85,7 +85,9 @@ def load_praw_data(data: pd.DataFrame) -> int:
 
 
 @task
-def load_alpaca_data(data: List[Dict], tickers: List):
+def load_alpaca_data(data_frame: pd.DataFrame, tickers: List):
+    data = data_frame.to_dict("records")
+
     print(f"-> Starting parallel loading of {len(data)} records.")
 
     ticker_cache: Dict[str, Any] = {}
