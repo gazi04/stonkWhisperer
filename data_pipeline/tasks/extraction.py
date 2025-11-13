@@ -181,28 +181,37 @@ def extract_praw_data(subreddit: str, flairs: list[str]) -> List[Dict]:
 
 @task(name="Extract Alpaca Data")
 def extract_alpaca_data(symbol_list: List[str]) -> List[Dict]:
-    total_symbols = len(symbol_list)
-    print(f"-> Starting parallel Alpaca-Py extraction for {total_symbols} symbols.")
+    print(f"-> Starting Alpaca extraction for stocks: {symbol_list}")
+    alpaca_client = StockHistoricalDataClient(settings.alpaca_api_key, settings.alpaca_secret_key) 
 
-    symbol_chunks = np.array_split(symbol_list, 4)
-    
-    task_signatures = [
-        fetch_stock_bars.s(chunk.tolist()) for chunk in symbol_chunks if chunk.size > 0
-    ]
-    
-    task_group = group(task_signatures)
-    result = task_group.apply_async()
-    
-    print(f"-> Waiting for {len(task_signatures)} Celery workers to return batches...")
+    request = StockBarsRequest(
+        symbol_or_symbols=symbol_list,
+        timeframe=TimeFrame.Minute,
+        start=datetime(2025, 10, 1),
+        end=datetime(2025, 10, 2)
+    )
 
     try:
-        batch_results = result.get(timeout=300) 
-        stock_data = [stock_bar for batch in batch_results for stock_bar in batch]
-        print(f"<- Finished extracting {len(stock_data)} stock bars.")
-        return stock_data
-    except Exception as e:
-        print(f"Error retrieving Celery results (Timeout or Task Failure): {e}")
+        data = alpaca_client.get_stock_bars(request)
+    except APIError as e:
+        print(f"-> Alpaca API error occurred:\n{e}")
         return []
+    except Exception as e:
+        print(f"-> An unhandled error occurred:\n{e}")
+        return []
+
+    # alpaca_client.get_stock_bars() method return either a BarSet or RawData
+    # in the BarSet scenario we use it's dict() method to turn it into a dictionary for reference look alpaca/data/models/bars.py
+    # in the other scenario the RawData is a dictionary for reference look alpaca/common/types.py
+    if isinstance(data, BarSet):
+        data_dict = data.dict()
+    else: data_dict = data
+
+    all_bars = []
+    for bar in data_dict.values():
+        all_bars.extend(bar)
+
+    return all_bars
 
 
 # ------------------------------
@@ -259,29 +268,28 @@ def fetch_article_task(self, urls: List[Optional[str]]) -> List[Dict[str, Any]]:
     time_limit=330,
 )
 def fetch_stock_bars(self, symbols: List[str]) -> List[Dict]:
+    # 🔴 todo: BUG look
     print(f"  -> [Worker] Starting fetching stock bars for {len(symbols)} symbols.")
     
+    print(f"  -> [DEBUG] symbols {symbols}")
     client = StockHistoricalDataClient(settings.alpaca_api_key, settings.alpaca_secret_key) 
     
     request = StockBarsRequest(
         symbol_or_symbols=symbols,
         timeframe=TimeFrame.Minute,
-        start=datetime(2025, 10, 4), 
-        end=datetime(2025, 10, 5)
+        start=datetime(2025, 10, 5), 
+        end=datetime(2025, 10, 6)
     )
 
     try:
         data = client.get_stock_bars(request)
+        print(f"  -> [DEBUG] data:\n{data}")
     except APIError as e:
         print(f"  -> [Worker] Alpaca API error occurred, message error is:\n{e}")
-        raise self.retry(exc=e)
+        raise e
     except Exception as e:
         print(f"  -> [Worker] An unhandled error occurred:\n{e}")
-        return []
-
-    if not data or (isinstance(data, BarSet) ^ isinstance(data, RawData)):
-        pass
-
+        raise e
 
     print(f"  -> [Worker] Finished fetching raw data.")
 
