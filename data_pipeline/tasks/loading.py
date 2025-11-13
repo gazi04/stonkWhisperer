@@ -48,7 +48,7 @@ def load_news_data(data: pd.DataFrame, category: str) -> int:
 
 
 @task(name="Dispatch Reddit Load Task")
-def load_praw_data(data: pd.DataFrame):
+def load_praw_data(data: pd.DataFrame) -> int:
     """
     Loads Reddit posts from a DataFrame into the database.
     """
@@ -196,8 +196,8 @@ def insert_articles_task(self, records: List[Dict[str, Any]], category: str) -> 
     bind=True,
     autoretry_for=(RequestException,),
     retry_kwargs={"max_retries": 2, "countdown": 30},
-    soft_time_limit=299,
-    time_limit=329,
+    soft_time_limit=300,
+    time_limit=330,
 )
 def insert_reddit_posts_task(self, records: List[Dict[str, Any]]) -> int:
     posts_count_received = len(records)
@@ -314,8 +314,13 @@ def insert_reddit_posts_task(self, records: List[Dict[str, Any]]) -> int:
 
 @app.task(
     name="insert_stock_to_db",
+    bind=True,
+    autoretry_for=(RequestException,),
+    retry_kwargs={"max_retries": 2, "countdown": 30},
+    soft_time_limit=300,
+    time_limit=330,
 )
-def insert_stock_task(records: Dict, ticker_cache: Dict):
+def insert_stock_task(self, records: Dict, ticker_cache: Dict) -> int:
     stocks = []
     for record in records:
         ticker = record.get("ticker")
@@ -350,3 +355,4 @@ def insert_stock_task(records: Dict, ticker_cache: Dict):
         except Exception as e:
             session.rollback()
             print(f"Error loading stock bar data. Transaction rolled back: {e}")
+            raise e
