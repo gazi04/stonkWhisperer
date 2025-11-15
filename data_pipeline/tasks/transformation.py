@@ -54,7 +54,9 @@ def transform_news_data(data: List[Dict[str, Any]]) -> Union[DataFrame, None]:
     print("Transformation is completed.")
 
     print("Ensure data types are correct")
-    data_frame["published_at"] = pd.to_datetime(data_frame["published_at"])
+    data_frame["published_at"] = pd.to_datetime(data_frame["published_at"], utc=True)
+    data_frame["published_at"] = data_frame["published_at"].astype("datetime64[us, UTC]")
+
 
     string_columns = [
         "source_name",
@@ -156,7 +158,11 @@ def transform_praw_data(data: List[Dict]) -> Union[DataFrame, None]:
     data_frame["published_at"] = pd.to_datetime(
         data_frame["published_at"], unit="s", utc=True
     )
-    data_frame["article_published_at"] = pd.to_datetime(data_frame["article_published_at"])
+    data_frame["published_at"] = data_frame["published_at"].astype("datetime64[s, UTC]")
+
+    data_frame["article_published_at"] = pd.to_datetime(data_frame["article_published_at"], utc=True)
+    data_frame["article_published_at"] = data_frame["article_published_at"].astype("datetime64[s, UTC]")
+
     int_columns = ["score", "number_of_comments"]
     str_columns = ["reddit_id", "subreddit", "author", "title", "body_text", "article_url", "subreddit_category", "reddit_post_url", "article_headline", "article_author", "article_publisher", "article_content", "article_category", "article_headline_cleaned", "article_content_cleaned"]
 
@@ -178,7 +184,8 @@ def transform_alpaca_data(data: List[Dict]) -> Tuple:
     data_frame = DataFrame(data)
 
     print("Ensure data types are correct")
-    data_frame["timestamp"] = pd.to_datetime(data_frame["timestamp"])
+    data_frame["timestamp"] = pd.to_datetime(data_frame["timestamp"], utc=True)
+    data_frame["timestamp"] = data_frame["timestamp"].astype("datetime64[us, UTC]")
 
     numerical_columns = ["open", "high", "low", "close", "volume", "trade_count", "vwap"]
     data_frame.loc[:, numerical_columns] = data_frame[numerical_columns].apply(
@@ -228,6 +235,9 @@ def data_analysis(data: DataFrame):
 
     print("Info data")
     print(data.info())
+
+    print("Column types")
+    print(data.dtypes)
 
     print("Check for duplicate rows")
     print(data.duplicated())
