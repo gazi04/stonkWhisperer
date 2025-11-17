@@ -1,4 +1,5 @@
 from typing import Any, Dict, List, Tuple, Union
+import uuid
 from pandas import DataFrame
 from prefect import task
 
@@ -51,14 +52,15 @@ def transform_news_data(data: List[Dict[str, Any]]) -> Union[DataFrame, None]:
     data_frame["content_cleaned"] = data_frame["content"].apply(clean_text_for_nlp)
     print("Created 'title_cleaned' and 'content_cleaned' for prediction model.")
 
-    print("Transformation is completed.")
+    print("Adding a id column")
+    data_frame["id"] = [uuid.uuid4() for _ in range(len(data_frame))]
 
     print("Ensure data types are correct")
     data_frame["published_at"] = pd.to_datetime(data_frame["published_at"], utc=True)
     data_frame["published_at"] = data_frame["published_at"].astype("datetime64[us, UTC]")
 
-
     string_columns = [
+        "id",
         "source_name",
         "author",
         "title",
@@ -68,6 +70,8 @@ def transform_news_data(data: List[Dict[str, Any]]) -> Union[DataFrame, None]:
         "content_cleaned",
     ]
     data_frame[string_columns] = data_frame[string_columns].astype(str)
+
+    print("Transformation is completed.")
 
     data_analysis(data_frame)
 
@@ -154,6 +158,10 @@ def transform_praw_data(data: List[Dict]) -> Union[DataFrame, None]:
         "Created 'article_headline_cleaned' and 'article_content_cleaned' for prediction model."
     )
 
+    print("Adding a id column")
+    data_frame["id"] = [uuid.uuid4() for _ in range(len(data_frame))]
+    data_frame["article_id"] = [uuid.uuid4() for _ in range(len(data_frame))]
+
     print("Ensure data types are correct")
     data_frame["published_at"] = pd.to_datetime(
         data_frame["published_at"], unit="s", utc=True
@@ -164,7 +172,7 @@ def transform_praw_data(data: List[Dict]) -> Union[DataFrame, None]:
     data_frame["article_published_at"] = data_frame["article_published_at"].astype("datetime64[s, UTC]")
 
     int_columns = ["score", "number_of_comments"]
-    str_columns = ["reddit_id", "subreddit", "author", "title", "body_text", "article_url", "subreddit_category", "reddit_post_url", "article_headline", "article_author", "article_publisher", "article_content", "article_category", "article_headline_cleaned", "article_content_cleaned"]
+    str_columns = ["id", "article_id", "reddit_id", "subreddit", "author", "title", "body_text", "article_url", "subreddit_category", "reddit_post_url", "article_headline", "article_author", "article_publisher", "article_content", "article_category", "article_headline_cleaned", "article_content_cleaned"]
 
     data_frame[int_columns] = data_frame[int_columns].astype(int)
     data_frame[str_columns] = data_frame[str_columns].astype(str)
