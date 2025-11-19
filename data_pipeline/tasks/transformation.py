@@ -1,4 +1,4 @@
-from typing import Any, Dict, List, Tuple, Union
+from typing import Any, Dict, List, Tuple
 import uuid
 from pandas import DataFrame
 from prefect import task
@@ -11,12 +11,12 @@ import re
 # PREFECT TASKS
 # ----------------------------------------
 @task
-def transform_news_data(data: List[Dict[str, Any]]) -> Union[DataFrame, None]:
+def transform_news_data(data: List[Dict[str, Any]]) -> DataFrame:
     print("Transforming News data...")
 
     if len(data) == 0:
         print("There are 0 news records, the transformation taks will be skipped.")
-        return None
+        return DataFrame()
 
     data_frame = DataFrame.from_dict(data)
 
@@ -79,12 +79,12 @@ def transform_news_data(data: List[Dict[str, Any]]) -> Union[DataFrame, None]:
 
 
 @task
-def transform_praw_data(data: List[Dict]) -> Union[DataFrame, None]:
+def transform_praw_data(data: List[Dict]) -> DataFrame:
     print("Transforming PRAW data...")
 
     if len(data) == 0:
         print("There are 0 subreddit post records, the transformation taks will be skipped.")
-        return None
+        return DataFrame()
 
     data_frame = DataFrame(data)
 
