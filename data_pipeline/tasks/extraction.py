@@ -87,7 +87,7 @@ def extract_news_data(query: str, start_date: datetime, end_date: datetime) -> L
     except Exception as e:
         print(f"Error retrieving Celery results (Timeout or Task Failure): {e}")
         print(f"Retrying the task.")
-        raise e
+        return []
 
 @task(name="Extract PRAW Data")
 def extract_praw_data(subreddit: str, flairs: list[str]) -> List[Dict]:
@@ -112,14 +112,14 @@ def extract_praw_data(subreddit: str, flairs: list[str]) -> List[Dict]:
         else:
             data = subreddit_obj.new(limit=DATA_FETCH_LIMIT_PER_FLOW)
     except APIException as api_e:
-        print(f"PRAW API call failed during fetch. Reason: {api_e}")
-        raise RuntimeError(f"PRAW Extraction Failed(API Error): {api_e}")
+        print(f"API Error: PRAW API call failed during fetch. Reason: {api_e}")
+        return []
     except ClientException as client_e:
-        print(f"PRAW Client connection issue. Reason: {client_e}")
-        raise RuntimeError(f"PRAW Extraction Failed(Client Error): {client_e}")
+        print(f"Client Error: PRAW Client connection issue. Reason: {client_e}")
+        return []
     except Exception as e:
-        print(f"PRAW extraction failed for r/{subreddit}. Reason: {e}")
-        raise RuntimeError(f"PRAW Extraction Failed(Unhandled Error): {e}")
+        print(f"Unhandled Error: PRAW extraction failed for r/{subreddit}. Reason: {e}")
+        return []
 
     if not data or not isinstance(data, Iterator):
         print("The PRAW response is invalid.")
@@ -151,7 +151,7 @@ def extract_praw_data(subreddit: str, flairs: list[str]) -> List[Dict]:
 
     except Exception as e:
         print(f"PRAW failed during mapping the fetch data inot a list. Reason: {e}")
-        raise RuntimeError(f"PRAW Mapping Extraction Failed: {e}")
+        return []
 
     url_chunks = np.array_split(url_list, 4)
 
@@ -176,9 +176,7 @@ def extract_praw_data(subreddit: str, flairs: list[str]) -> List[Dict]:
         return post_list
     except Exception as e:
         print(f"Error retrieving Celery results (Timeout or Task Failure): {e}")
-        print(f"Retrying the task.")
-        raise e
-
+        return []
 
 @task(name="Extract Alpaca Data")
 def extract_alpaca_data(symbol_list: List[str]) -> List[Dict]:
