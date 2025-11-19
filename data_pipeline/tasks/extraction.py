@@ -1,5 +1,5 @@
 from alpaca.common.exceptions import APIError
-from alpaca.data import BarSet, RawData
+from alpaca.data import BarSet
 from alpaca.data.historical import StockHistoricalDataClient
 from alpaca.data.requests import StockBarsRequest
 from alpaca.data.timeframe import TimeFrame
@@ -29,6 +29,10 @@ import numpy as np
 def extract_news_data(query: str, start_date: datetime, end_date: datetime) -> List[Dict]:
     print(f"-> Starting NewsAPI extraction for query: {query}")
 
+    from_date_str = start_date.strftime("%Y-%m-%d")
+    to_date_str = end_date.strftime("%Y-%m-%d")
+    print(f"-> Data range: {from_date_str} to {to_date_str}")
+
     try:
         api = NewsApiClient(api_key=settings.news_api_key)
         data = api.get_everything(
@@ -37,7 +41,7 @@ def extract_news_data(query: str, start_date: datetime, end_date: datetime) -> L
     except NewsAPIException as e:
         print(f"Error occured in the NewsAPI client: {e}")
         print("Retrying the task.")
-        raise e
+        return []
 
     if not data or not isinstance(data, dict):
         print("The NewsAPI response is invalid.")
@@ -86,9 +90,6 @@ def extract_news_data(query: str, start_date: datetime, end_date: datetime) -> L
         raise e
 
 @task(name="Extract PRAW Data")
-    """
-    Connects to Reddit via PRAW to fetch posts from a specified subreddit.
-    """
 def extract_praw_data(subreddit: str, flairs: list[str]) -> List[Dict]:
     print(f"-> Starting PRAW extraction from subreddit: {subreddit}")
 
