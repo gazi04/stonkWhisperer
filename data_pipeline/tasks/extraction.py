@@ -40,7 +40,9 @@ def extract_news_data(query: str, start_date: datetime, end_date: datetime) -> L
         )
     except NewsAPIException as e:
         print(f"Error occured in the NewsAPI client: {e}")
-        print("Retrying the task.")
+        return []
+    except Exception as e:
+        print(f"Unhandled Error: {e}")
         return []
 
     if not data or not isinstance(data, dict):
