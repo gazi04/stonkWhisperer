@@ -1,31 +1,23 @@
-from datetime import datetime, timedelta
 from prefect import flow
 
 from tasks.extraction import extract_news_data
 from tasks.transformation import transform_news_data
 from tasks.loading import load_news_data
+from tasks.load_to_s3 import load_data_to_s3
+from tasks.trigger_databricks_job import trigger_databrick_job
 
 @flow(name="NewsAPI ETL Pipeline", log_prints=True)
-def news_etl_flow(query: str, category: str):
+async def news_etl_flow(query: str, category: str) -> int:
     """
     Dedicated ETL pipeline for NewsAPI.
     """
     print(f"*** Running News ETL for query: {query} ***")
 
-    # raw_data = []
-    # current_day = datetime(2025, 10, 7)
-    # end_date = datetime(2025, 10, 15)
-    #
-    # while current_day.date() < end_date.date():
-    #     day_start = current_day
-    #     day_end = day_start + timedelta(days=1)
-    #     raw_data.extend(extract_news_data(query, day_start, day_end))
-    #     current_day = day_end
-
-    raw_data = extract_news_data(query, datetime(2025, 10, 16), datetime(2025, 10, 17))
-
+    raw_data = extract_news_data(query)
     transformed_data = transform_news_data(raw_data)
-    
-    load_news_data(transformed_data, category)
+    path = load_data_to_s3(transformed_data, "news", category)
+
+    if path: 
+        await trigger_databrick_job("get_news_from_s3", path)
     
     return len(raw_data)

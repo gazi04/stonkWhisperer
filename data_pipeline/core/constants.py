@@ -14,6 +14,8 @@ SUBREDDITS = [
     {"name": "FinanceNews", "flairs": []},
 ]
 
+STOCK_TICKERS = ["AAPL", "AMD", "NVDA", "TSLA", "SNOW", "MSFT", "ORCL", "META", "SAP", "CSCO", "SHEL", "MCD", "UBER", "QCOM", "INTC"]
+
 DEFAULT_ARTICLE_DATA = {
     "article_headline": None,
     "article_author": None,

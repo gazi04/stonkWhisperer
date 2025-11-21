@@ -3,21 +3,21 @@ from prefect import flow
 from tasks.extraction import extract_alpaca_data
 from tasks.transformation import transform_alpaca_data
 from tasks.loading import load_alpaca_data
+from tasks.load_to_s3 import load_data_to_s3
+from tasks.trigger_databricks_job import trigger_databrick_job
 
 @flow(name="Alpaca ETL Pipeline", log_prints=True)
-def alpaca_etl_flow(symbols: List[str]):
+async def alpaca_etl_flow(symbols: List[str]) -> int:
     """
     Dedicated ETL pipeline for Alpaca-Py (Market Data).
     """
     print(f"*** Running Alpaca ETL for symbol: {symbols} ***")
     
-    # 1. E-xtraction
     raw_data = extract_alpaca_data(symbols)
-    
-    # 2. T-ransformation (Placeholder)
     transformed_data, ticker_list = transform_alpaca_data(raw_data)
-    
-    # 3. L-oading (Placeholder)
-    load_alpaca_data(transformed_data, ticker_list)
+    path = load_data_to_s3(transformed_data, "stocks")
+
+    if path:
+        await trigger_databrick_job("get_stocks_from_s3", path)
 
     return len(raw_data)
