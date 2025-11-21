@@ -4,7 +4,7 @@ from alpaca.data.historical import StockHistoricalDataClient
 from alpaca.data.requests import StockBarsRequest
 from alpaca.data.timeframe import TimeFrame
 from celery import group
-from datetime import datetime
+from datetime import date, datetime, timedelta
 from newsapi import NewsApiClient
 from newsapi.newsapi_exception import NewsAPIException
 from praw.exceptions import APIException, ClientException
@@ -26,8 +26,12 @@ import numpy as np
 # PREFECT TASKS
 # ------------------------------
 @task(name="Extract NewsAPI Data")
-def extract_news_data(query: str, start_date: datetime, end_date: datetime) -> List[Dict]:
+def extract_news_data(query: str, start_date: datetime = None, end_date: datetime = None) -> List[Dict]:
     print(f"-> Starting NewsAPI extraction for query: {query}")
+
+    if not start_date or not end_date:
+        start_date = datetime.today() - timedelta(days=2)
+        end_date = start_date + timedelta(days=1)
 
     from_date_str = start_date.strftime("%Y-%m-%d")
     to_date_str = end_date.strftime("%Y-%m-%d")
@@ -181,15 +185,19 @@ def extract_praw_data(subreddit: str, flairs: list[str]) -> List[Dict]:
         return []
 
 @task(name="Extract Alpaca Data")
-def extract_alpaca_data(symbol_list: List[str]) -> List[Dict]:
+def extract_alpaca_data(symbol_list: List[str], start_date: datetime = None, end_date: datetime = None) -> List[Dict]:
     print(f"-> Starting Alpaca extraction for stocks: {symbol_list}")
     alpaca_client = StockHistoricalDataClient(settings.alpaca_api_key, settings.alpaca_secret_key) 
+
+    if not start_date or not end_date:
+        start_date = datetime.today() - timedelta(days=2)
+        end_date = start_date + timedelta(days=1)
 
     request = StockBarsRequest(
         symbol_or_symbols=symbol_list,
         timeframe=TimeFrame.Minute,
-        start=datetime(2025, 10, 1),
-        end=datetime(2025, 10, 2)
+        start=start_date,
+        end=end_date
     )
 
     try:
